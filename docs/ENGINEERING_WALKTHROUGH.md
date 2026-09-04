@@ -400,6 +400,249 @@ LLM batch will shrink once it exists.
 
 ---
 
+## Phase 5 — LLM Extraction Layer
+
+### The provider abstraction
+
+`app/services/llm/base.py` defines a single `LLMProvider` ABC
+(`complete_json(system_prompt, user_prompt) -> LLMCompletionResult`, plus
+two exception types — `LLMRateLimitError` distinct from the general
+`LLMProviderError` so callers can react differently to quota exhaustion
+than to an outright failure). `groq_provider.py` and `gemini_provider.py`
+each implement it against the real **`groq`** and **`google-genai`** SDKs
+(`AsyncGroq`, model `openai/gpt-oss-20b`; `genai.Client`, model
+`gemini-2.5-flash-lite`) — both introspected against their actually
+installed package APIs before writing code against them, not assumed from
+memory. Every test in this phase runs against a canned-response stub
+implementing that same `LLMProvider` interface — CI never calls a real
+provider, per the plan's explicit rule.
+
+### Quota-aware selection
+
+`app/services/llm/quota.py` reads/writes one `llm_usage_log` row per
+provider per day and picks whichever provider currently has both a
+configured API key and headroom under its daily request/token limits —
+checked *before* a call, not learned by catching 429s. `select_provider`
+returns `None` (never raises) when nothing has headroom, so the caller can
+treat "no provider available right now" as "queue for later," which is
+exactly what `extraction.py` does.
+
+### One batched call per contract
+
+`app/services/llm/extraction.py` is the orchestrator: for each contract's
+prefilter-surviving chunks, it first checks Phase 4's clause-dedup cache
+(a hit reuses the cached structured extraction with zero LLM cost); every
+cache miss is batched into a **single** schema-constrained prompt per
+contract (`prompt.py` embeds `ContractExtractionResult`'s JSON schema
+directly in the prompt text) rather than one call per paragraph — repeating
+the system prompt and document context per-paragraph would be the single
+biggest avoidable token cost. The raw response is validated against the
+Pydantic schema on receipt; a validation failure gets exactly one
+corrective retry (`build_corrective_prompt`, quoting the validation error
+back to the model) before falling back to the secondary provider.
+
+Every extracted obligation touching `RENEWAL`/`TERMINATION_NOTICE`, or
+below a 0.7 confidence score, is flagged `is_human_reviewed = False` — the
+system assists a human on legally binding dates, it never silently
+auto-trusts the model. `computed_alert_date` and the initial
+`upcoming`/`at_risk`/`overdue` status are computed in plain Python
+(`app/services/obligation_dates.py`, factored out in Phase 6 so the review
+API reuses the identical calendar math), never delegated to the LLM.
+
+If no provider has headroom, the extraction job is left `QUEUED` rather
+than failed — a real gap in the current build (there's no background
+sweep that retries it yet; a contract stays queued until the next upload
+or a manual re-trigger) called out here rather than glossed over.
+
+---
+
+## Phase 6 — Obligation & Review APIs
+
+`app/api/v1/obligations.py` adds list/filter (`category`, `status`,
+`contract_id`, `assigned_to`, a `trigger_date` range), a single `PATCH`
+covering every human-review action the plan describes — edit, confirm,
+waive — as one endpoint: an empty body confirms the extraction as-is,
+setting any field corrects it, and setting `status` records an explicit
+decision like waiving. Every call marks `is_human_reviewed = True`, since
+reaching an editor-only endpoint at all is itself the human review. A
+`trigger_date`/`notice_period_days` edit recomputes `computed_alert_date`
+and re-derives status via the same `obligation_dates.py` module Phase 5
+uses, unless the same request also sets `status` explicitly — an explicit
+override always wins over the derived value.
+
+`GET /obligations/calendar` backs the "expiring in N days" view: everything
+with a `trigger_date` inside the window or already overdue, excluding
+`resolved`/`waived`. `GET /dashboard/summary` aggregates at-risk/overdue/
+upcoming-this-month counts plus total active contract value — **grouped by
+currency**, not summed across currencies, since silently adding USD and
+EUR would produce a number that means nothing.
+
+Every mutation writes an `audit_log` entry via the same `write_audit_log`
+helper Phase 2's auth endpoints already used.
+
+---
+
+## Phase 7 — Scheduler & Alerting
+
+`app/worker.py` is the `worker` process from `docker-compose.yml`: an
+**APScheduler** `AsyncIOScheduler` running one daily cron job. Documented
+deviation from the plan's suggested `SQLAlchemyJobStore`: that store needs
+a synchronous DB driver (asyncpg-based SQLAlchemy engines aren't
+supported), which would mean a second database connection type for a
+process that schedules exactly one fixed job, re-registered identically on
+every restart — nothing for a persistent job store to actually recover.
+The default in-memory store was the right call here, not an oversight.
+
+`app/services/alerts.py`'s `run_alert_scan` does two things in one pass:
+recomputes every open obligation's status from today's date (closing a real
+gap — nothing else in the system revisits an obligation's status as time
+passes), then sends one email per obligation newly `at_risk`/`overdue`,
+resolving the recipient as the obligation's assignee if set, otherwise the
+contract's original uploader (`Contract.uploaded_by` is a required FK, so
+there's always exactly one to fall back to). Each send is wrapped in its
+own `try`/`except` so one SMTP failure never aborts the batch — a partial
+failure produces a mix of `sent`/`failed` `alerts` rows, not a crashed job.
+
+`app/services/email.py` sends plain-text + HTML via **`aiosmtplib`**. A
+real bug caught by writing the test for "don't resend the same alert twice
+in one day" before trusting the code: the dedup boundary was originally
+computed from `date.today()` (the *server's local* date) combined with a
+UTC timestamp comparison — wrong whenever local time and UTC disagree on
+which calendar day it is, which is most of the day for any timezone east
+of UTC. Fixed to derive "today" from `datetime.now(UTC).date()` throughout,
+consistent with `scheduled_for`'s own UTC storage.
+
+`POST /admin/alerts/scan` runs the identical job on demand — for testing
+and demos without waiting for the daily cron.
+
+---
+
+## Phase 9 — Precedent Search
+
+Built ahead of Phase 8's frontend, so the search UI would have a real
+endpoint to call rather than a stub. `GET /precedents/search` embeds the
+query with the exact same local model used for ingestion and ranks
+`contract_chunks` by pgvector cosine similarity, org-scoped.
+
+Documented deviation: the plan describes searching
+`clause_precedent_cache`/`contract_chunks`. `clause_precedent_cache` has no
+`contract_id` — it exists purely to short-circuit repeat LLM calls
+org-wide, and can't produce the "source contract links" the feature
+explicitly needs. `contract_chunks` is what actually can, so that's what
+this searches.
+
+`GET /admin/llm-usage` and `GET /audit-log` — both named in the plan's API
+surface but not assigned to a specific numbered phase — were filled in
+here since they're natural companions to the ops-visibility work already
+in flight.
+
+---
+
+## Phase 8 — Frontend Core
+
+React 19 + **React Router** + **TanStack Query**, on top of the Phase 0
+shadcn/Tailwind scaffold. The API client is fully typed against the
+backend's own OpenAPI schema — **`openapi-typescript`** generates
+`src/lib/api-schema.ts` from a running backend's `/openapi.json`, and
+**`openapi-fetch`** provides a client whose request/response shapes are
+compiler-checked from that schema, not hand-typed. `openapi-typescript`
+itself isn't a project dependency: its TypeScript peer range lags behind
+the version this project pins, so it's run via `npx` as a documented,
+occasional codegen step (`frontend/README.md`) rather than forcing a
+peer-dependency conflict into `package.json` — the same category of
+version-skew problem that caused the Node/vitest CI failure earlier in
+this build, avoided proactively this time instead of fixed reactively.
+
+Auth keeps the access token in memory only (never `localStorage` — an XSS
+payload can't read what isn't stored) and restores the session on page
+reload via one silent `POST /auth/refresh` using the httpOnly cookie,
+which does survive a reload. A `Middleware` on the API client attaches the
+bearer token to every request and, on a 401, transparently refreshes and
+retries the request exactly once — with concurrent 401s deduped to a
+single in-flight refresh call, so a page firing several queries at once
+right as the token expires doesn't trigger a refresh stampede.
+
+The compliance calendar is a chronological agenda list, not a month-grid
+widget — a deliberate scope call: an agenda view surfaces "what's actually
+due" more directly than a calendar grid would, for meaningfully less UI
+complexity.
+
+Two real bugs surfaced by actually running the app rather than trusting
+the code:
+- `GET /contracts/{id}/file` didn't exist — needed for the inline PDF
+  viewer, added as part of this phase, with the user-supplied original
+  filename escaped before it reaches the `Content-Disposition` header.
+- The upload dialog's "browse files" trigger was a bare `<label>` over a
+  `display:none` file input — invisible to keyboard users, since a label
+  alone isn't focusable/activatable the way a button is. Fixed as part of
+  a broader accessibility pass (icon-only buttons now carry `aria-label`,
+  not just `title`).
+
+Every endpoint the frontend calls was verified against a real running
+backend before any of this was called done — the register→login→refresh
+cookie flow, upload, obligations, precedent search, the admin views — not
+just typechecked.
+
+---
+
+## Phase 10/11 — Load Test, Accessibility, Demo Readiness
+
+`scripts/measure_token_funnel.py` runs the full token-minimization funnel
+against the real 510-contract CUAD v1 corpus — the actual dataset, not a
+sample — entirely offline (regex pre-filter and the local embedding model
+only; no LLM calls, no database writes). Clause-dedup is simulated
+in-memory: each contract's surviving paragraphs are checked against every
+embedding seen from *earlier* contracts in the same run, the same way
+`clause_precedent_cache` actually accumulates org-wide, using numpy
+batch dot products against L2-normalized embeddings (cosine similarity,
+since they're already normalized) rather than a pairwise Python loop —
+needed to stay tractable as the in-memory cache grows across 510
+contracts. See the README for the measured reduction ratio.
+
+`scripts/seed_demo_data.py` (built in Phase 1, before real auth existed)
+had three bugs that only surfaced from actually running it end-to-end
+against the real dataset rather than re-reading the code:
+- Seeded users had a hardcoded, deliberately-unusable password hash — a
+  leftover from before Phase 2's bcrypt hashing existed. Nobody could ever
+  log in as a demo user. Now hashed for real.
+- Seeded emails used the `.test` TLD, which `email-validator` rejects as
+  an IANA special-use domain — every login attempt 422'd before the
+  password bug even mattered. Switched to RFC 2606's `.example`.
+- `--reset` crashed on a foreign-key violation once a demo user had ever
+  actually logged in (`audit_log`/`refresh_tokens` rows reference
+  `users.id` and weren't cleaned up first).
+
+None of these were reachable by reading the script — only by running it,
+logging in as the account it created, and resetting it again.
+
+The full-stack `docker compose up --build` run for this phase surfaced a
+real, separate bug: the plain `torch==<version>` pin in `requirements.txt`
+resolves to PyTorch's default PyPI wheel, which bundles full CUDA support
+— `nvidia-cudnn`/`cuda-toolkit` dependencies alone added up to roughly
+1.1GB, on a backend that runs `sentence-transformers` exclusively on CPU
+(`app/services/embeddings.py`). The CPU-only build is a *different* wheel
+published under the identical version string, served only from PyTorch's
+own package index — invisible until an actual fresh `pip install` (or
+Docker build) pulled the wrong one; a local dev venv that happened to
+already have the CPU build installed masked this completely, since
+`torch.__version__` (`2.14.0+cpu`) and `pip freeze`'s plain
+`torch==2.14.0` disagree on how specific they are. Fixed by pinning
+`torch==2.14.0+cpu` with an `--extra-index-url` directive in
+`requirements.txt` itself — verified by actually downloading both wheels
+and comparing sizes (124MB vs. 554MB, before even counting the CUDA
+dependencies), not just trusting that the pin looked right.
+
+The accessibility pass (icon-only buttons, the upload dialog's keyboard
+reachability) is covered under Phase 8 above, since it was found and fixed
+alongside the feature it affects rather than as a separate late pass.
+
+`docs/DEMO_SCRIPT.md` covers two paths: seeded data (no external
+credentials needed) and live extraction (needs a real Groq/Gemini key) —
+plus how to actually see a demo alert email, which needs a local SMTP
+catcher pointed at by `SMTP_HOST` rather than nothing at all.
+
+---
+
 ## Testing Strategy
 
 Every phase's tests run against a **real** Postgres+pgvector instance —
@@ -423,16 +666,41 @@ whose `asyncpg` connections are bound to whichever event loop created
 them; pytest-asyncio's default per-function loop would tear that loop
 down between tests while the engine still held connections open on it.
 
+One consequence of the shared local dev database worth recording: data
+written by a *real* session (the seed script, or a manual `curl` smoke
+test — anything that commits through the app's own `AsyncSessionLocal`,
+not the test suite's rolled-back transaction) persists across test runs
+like any other real write, since Postgres has no way to know it was
+"only for testing." A few alerts tests briefly failed for exactly this
+reason after manually seeding demo data mid-session; the fix was cleaning
+up that data, not the test code — the tests were correctly detecting real
+extra rows in the table they scan.
+
+The frontend's test suite is intentionally lighter (a handful of
+component/unit tests via **Vitest** + **Testing Library**) than the
+backend's — most of its correctness confidence instead comes from full
+TypeScript coverage against the generated API types (a wrong field name
+or shape is a compile error, not a runtime surprise) and from manually
+exercising every endpoint the UI calls against a real running backend
+before calling a feature done.
+
 ---
 
-## Roadmap
+## Current Status
 
-The build plan's remaining phases, in order: LLM-based structured
-extraction (Groq primary, Gemini fallback, schema-validated against a
-Pydantic model, with quota-aware provider selection), the
-obligation/review CRUD API and audit-logged review workflow, the
-APScheduler-driven daily alert scan and email notifications, the React
-frontend's core views (dashboard, contract detail with source-paragraph
-traceability, review queue, compliance calendar), the precedent-search
-feature built on the embedding infrastructure already in place, and a
-final hardening/accessibility/documentation pass before demo readiness.
+All eleven phases of the build plan are implemented and pushed to `main`.
+Known gaps, called out here rather than left to be discovered:
+
+- **No retry sweep for queued extractions.** If no LLM provider had quota
+  headroom at upload time, the extraction job is left `QUEUED` and nothing
+  currently revisits it automatically — a contract stuck this way needs a
+  fresh upload or a manual trigger. The daily worker process would be the
+  natural place to add this.
+- **Admin Settings is scoped to what the backend actually supports.** The
+  plan's Admin Settings page also describes user/role management and
+  per-category lead-time configuration; neither has a backend API, so the
+  frontend doesn't pretend to offer them — it ships LLM usage and the audit
+  log, which are real.
+- **Multi-currency contract value is grouped, not summed**, on the
+  dashboard — a deliberate choice (see Phase 6), not an oversight, but
+  worth knowing if you're expecting one number.

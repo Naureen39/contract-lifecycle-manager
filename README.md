@@ -11,15 +11,16 @@ to a date nobody put on a calendar. None of that lives anywhere a computer
 can see it. It lives in a PDF, in someone's memory, or in a spreadsheet
 that's already a version behind.
 
-ObliTrack is a system I designed and am building to close that gap: it
-ingests a signed contract, extracts every obligation, deadline, and
-monetary milestone it contains, and turns that into a live, queryable
-compliance calendar with proactive alerts — so a missed renewal window
-becomes something that gets caught weeks in advance, not something legal
-finds out about after the fact.
+ObliTrack is a system I designed and built to close that gap: it ingests
+a signed contract, extracts every obligation, deadline, and monetary
+milestone it contains, and turns that into a live, queryable compliance
+calendar with proactive alerts — so a missed renewal window becomes
+something that gets caught weeks in advance, not something legal finds
+out about after the fact.
 
 This repository is the engineering build of that system, developed in
-phases, each one shipped as a working, tested increment.
+phases, each one shipped as a working, tested increment — all eleven
+phases of the original build plan are complete.
 
 ## The Problem
 
@@ -60,9 +61,11 @@ Contract Intake → Clause/Obligation Extraction → Obligation Tracking DB
    → Compliance Calendar → Automated Alerting → Renewal/Renegotiation Workflow
 ```
 
-**Delivered so far** (Phases 0–4 of the build — see
+**All eleven phases of the build are complete** — see the
 [Engineering Walkthrough](docs/ENGINEERING_WALKTHROUGH.md) for the full,
-step-by-step account):
+phase-by-phase account of how, including the deliberate deviations from
+the original plan and the real bugs found by actually running each piece
+end to end rather than trusting a green test suite alone.
 
 - **A production-shaped foundation** — FastAPI backend, React frontend,
   Dockerized end to end, CI enforcing lint/type-check/tests/security scans
@@ -71,26 +74,33 @@ step-by-step account):
   and a revocation denylist, role-based access control, rate-limited auth
   endpoints, and an audit trail on every state-changing action.
 - **A real document ingestion pipeline** — authenticated multipart
-  upload with magic-byte file validation (not just trusting the file
-  extension), PDF/DOCX parsing into paragraph-level chunks, and a
-  deterministic pre-filter that flags obligation-bearing text before
-  anything more expensive touches it.
-- **Local semantic search** — every candidate paragraph is embedded on
-  CPU via a locally-run sentence-transformer model (zero API cost, zero
-  rate limit), stored in Postgres via `pgvector`, and matched against a
-  fixed reference set per obligation category — the second free filter
-  stage in a pipeline explicitly designed to minimize what ever reaches a
-  paid LLM call.
-
-**Still ahead**: the LLM-based structured extraction call itself, the
-compliance calendar UI, the automated alerting scheduler, and the
-renewal-workflow views — see the roadmap in the engineering walkthrough.
+  upload with magic-byte file validation, PDF/DOCX parsing into
+  paragraph-level chunks, and a deterministic regex pre-filter that flags
+  obligation-bearing text before anything more expensive touches it.
+- **A three-stage token-minimization funnel** ahead of every paid LLM
+  call: the regex pre-filter, a local semantic-similarity filter (CPU-only
+  sentence-transformer embeddings, zero API cost), and org-wide
+  clause-level deduplication via `pgvector` — measured against the real,
+  full 510-contract CUAD v1 dataset (see Results below), not assumed.
+- **Dual-provider LLM extraction** — Groq primary, Gemini fallback,
+  quota-aware provider selection, schema-validated structured output with
+  one corrective retry, and a human-review queue for anything low-confidence
+  or touching a high-stakes category (renewals, termination notices).
+- **A live compliance calendar and alerting worker** — obligation status
+  is recomputed daily from the actual date, and email alerts fire (isolated
+  per-obligation, so one bad send never blocks the batch) for anything
+  newly at-risk or overdue, deduped so nothing gets alerted twice in a day.
+- **A full React frontend** — dashboard, contract upload with an inline
+  PDF viewer, a review queue, the compliance calendar, precedent search
+  over every clause ever ingested, and admin views for LLM quota usage and
+  the audit log — talking to the backend through a client fully typed
+  against its own generated OpenAPI schema.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    User(["Legal Ops / Procurement User"]) -->|"upload contract, review obligations"| FE["React + TypeScript SPA"]
+    User(["Legal Ops / Procurement User"]) -->|"upload, review, search"| FE["React + TypeScript SPA - typed client from OpenAPI schema"]
     FE -->|"REST, JWT bearer auth"| API
 
     subgraph API["FastAPI Backend"]
@@ -98,21 +108,29 @@ flowchart TB
         Ingestion["Document Ingestion - PyMuPDF / python-docx"]
         PreFilter["Deterministic Pre-filter - regex: dates, durations, keywords"]
         Embedding["Local Embeddings - sentence-transformers, CPU-only"]
-        Extraction["LLM Extraction (Phase 5) - Groq primary / Gemini fallback"]
+        Dedup["Clause Dedup - pgvector cosine similarity"]
+        Extraction["LLM Extraction - Groq primary / Gemini fallback"]
+        Review["Review Queue and Obligation APIs"]
+        Precedents["Precedent Search"]
     end
 
     Ingestion --> PreFilter
     PreFilter --> Embedding
-    Embedding -.->|"next phase"| Extraction
+    Embedding --> Dedup
+    Dedup -->|"cache miss - one batched call"| Extraction
+    Dedup -.->|"cache hit - zero LLM cost"| Review
+    Extraction --> Review
+    Embedding --> Precedents
 
     API --> DB[("PostgreSQL 16 + pgvector")]
     API --> FS[["Local File Storage - UUID-keyed, outside web root"]]
 
-    Worker["Background Worker - APScheduler (Phase 7)"] --> DB
-    Worker -.->|"daily alert scan"| Email[["Email Alerts via SMTP"]]
+    Worker["Background Worker - APScheduler daily job"] --> DB
+    Worker -->|"recompute status, send alerts"| Email[["Email Alerts via SMTP"]]
 
-    DB --> Calendar["Compliance Calendar (Phase 6+)"]
+    DB --> Calendar["Compliance Calendar"]
     Calendar -.-> User
+    Email -.-> User
 ```
 
 Every query is scoped by the authenticated user's organization at the
@@ -126,18 +144,41 @@ Numbers that are true today, not projections:
 
 | | |
 |---|---|
-| **Automated tests** | 76, all passing, run against a real Postgres+pgvector instance in CI |
-| **Type coverage** | `mypy --strict` clean across the entire backend (app, scripts, and tests) |
+| **Automated tests** | 127 backend (real Postgres+pgvector, both locally and in CI) + frontend component/unit tests, all passing |
+| **Type coverage** | `mypy` clean across the entire backend; the frontend's API client is compiler-checked against the backend's own generated OpenAPI schema |
 | **Dependency security** | Zero known vulnerabilities (`pip-audit` + `npm audit`), including the ML dependency tree |
 | **Database schema** | 11 tables, fully migration-managed via Alembic, zero schema drift between models and migrations |
 | **Container security** | Both Docker images verified running as non-root |
 | **CI coverage** | Lint, type-check, tests, migration-drift check, dependency audit, and a Docker build smoke test — on every push |
+| **Backend image size** | ~1GB lighter after pinning PyTorch's CPU-only build explicitly — the plain `torch==<version>` pin resolves to the full CUDA build (bundling ~1.1GB of unused `nvidia-cudnn`/`cuda-toolkit`) on a server that only ever runs embeddings on CPU |
 
-The token-minimization design (regex pre-filter, then local semantic
-similarity, then clause-level dedup — all before any paid LLM call) is
-built and tested end-to-end through the embedding stage; its actual
-token-reduction ratio will be measured and published once the LLM
-extraction step (Phase 5) is live.
+**The token-minimization funnel, measured against the real, full
+510-contract CUAD v1 dataset** (`scripts/measure_token_funnel.py` — regex
+pre-filter, then local semantic similarity, then clause-level dedup, all
+before any paid LLM call; dedup simulated in-memory exactly as
+`clause_precedent_cache` accumulates in production):
+
+| Stage | Paragraphs | Est. tokens |
+|---|---:|---:|
+| 0. Raw (every paragraph) | 62,193 | 6,550,405 |
+| 1. + regex pre-filter | 24,609 | 4,122,268 |
+| 2. + local semantic-similarity filter | 18,021 | 3,593,205 |
+| 3. + clause-precedent dedup (final LLM input) | 17,524 | 3,554,806 |
+
+**45.7% token reduction** before a single paid LLM call — below the
+build plan's original ">80%" target, and worth being direct about why:
+stage 1 (the regex pre-filter) does the heavy lifting, cutting 60% of
+paragraphs on its own; stages 2 and 3 add real but smaller reductions.
+Dedup in particular only caught 497 near-duplicate paragraphs across the
+whole run — CUAD is deliberately curated for *clause diversity* across
+510 unrelated companies' contracts, which is close to a worst case for a
+cache that's designed to catch one organization's *own* boilerplate
+repeating across its own contract templates. A single real tenant
+re-uploading its standard NDA or MSA template repeatedly would see a much
+higher dedup hit rate than this synthetic worst-case corpus shows — but
+"the plan's number was aspirational and the real number is lower, here's
+the load-bearing reason why" is a more useful result than a number tuned
+to match the plan.
 
 ## How to Run It
 
@@ -155,7 +196,7 @@ python -m venv .venv
 # source .venv/bin/activate && pip install -r requirements.txt -r requirements-dev.txt  # macOS/Linux
 
 ./.venv/Scripts/python -m uvicorn app.main:app --reload   # http://localhost:8000
-./.venv/Scripts/python -m pytest                          # 76 tests
+./.venv/Scripts/python -m pytest                          # 127 tests
 ./.venv/Scripts/python -m ruff check .                     # lint
 ./.venv/Scripts/python -m mypy app scripts tests            # type-check
 ```
@@ -171,6 +212,10 @@ With a Postgres+pgvector instance running (see Docker Compose below, or
 ./.venv/Scripts/python -m alembic upgrade head          # apply migrations
 ./.venv/Scripts/python -m scripts.seed_demo_data --demo   # optional: realistic demo data from CUAD
 ```
+
+The seed script prints working demo login credentials (all three accounts
+share one password) — see [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for
+a full guided walkthrough.
 
 The first request that needs the embedding model (Phase 4) downloads and
 caches `BAAI/bge-base-en-v1.5` (~440MB) from Hugging Face — a one-time
@@ -205,7 +250,7 @@ frontend — wired together via `infra/docker-compose.yml`.
 
 ```
 backend/    FastAPI app — Python 3.13, async SQLAlchemy + Alembic
-frontend/   React 18 + Vite + TypeScript + Tailwind + shadcn/ui
+frontend/   React 19 + Vite + TypeScript + Tailwind + shadcn/ui
 infra/      docker-compose.yml (postgres+pgvector, api, worker, frontend)
 data/       git-ignored reference datasets (see data/README.md)
 docs/       engineering documentation
