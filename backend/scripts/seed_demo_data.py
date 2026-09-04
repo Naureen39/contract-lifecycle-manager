@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pymupdf
 from dateutil import parser as date_parser
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +55,7 @@ from app.db.models import (
     User,
 )
 from app.db.session import AsyncSessionLocal
+from app.services.storage import save_contract_file
 
 DEMO_ORG_NAME = "Demo Legal Ops"
 DEFAULT_CUAD_PATH = (
@@ -236,6 +238,30 @@ def iter_cuad_rows(cuad_path: Path, limit: int) -> Iterator[dict[str, str]]:
             yield row
 
 
+def _placeholder_pdf_bytes(document_name: str) -> bytes:
+    """A minimal, real, one-page PDF for the handful of CUAD rows whose
+    original file isn't found in full_contract_pdf/ — keeps the frontend's
+    document preview honest (a real, if plain, PDF) rather than 404ing."""
+    document = pymupdf.open()  # type: ignore[no-untyped-call]
+    page = document.new_page()
+    page.insert_text((72, 72), document_name[:100])
+    page.insert_text((72, 100), "(Original PDF not found in the demo dataset.)")
+    data: bytes = document.tobytes()  # type: ignore[no-untyped-call]
+    document.close()  # type: ignore[no-untyped-call]
+    return data
+
+
+def build_pdf_index(cuad_path: Path) -> dict[str, Path]:
+    """Maps a CUAD `Filename` value to its real PDF on disk. The CSV gives
+    no indication of which `full_contract_pdf/Part_I|II|III/<category>/`
+    subfolder a given contract lives under, so this indexes all ~510 of
+    them once, by basename, rather than re-globbing per row."""
+    pdf_root = cuad_path.parent / "full_contract_pdf"
+    if not pdf_root.exists():
+        return {}
+    return {path.name: path for path in pdf_root.rglob("*.pdf")}
+
+
 def build_obligations(
     contract_id: uuid.UUID, row: dict[str, str], today: date
 ) -> list[Obligation]:
@@ -408,6 +434,9 @@ async def seed(args: argparse.Namespace) -> None:
         await session.flush()
         assignable_users = [u for u in users if u.role != UserRole.VIEWER]
 
+        pdf_index = build_pdf_index(args.cuad_path)
+        missing_pdfs = 0
+
         contract_count = 0
         obligation_count = 0
         status_counts: dict[ObligationStatus, int] = {}
@@ -427,7 +456,7 @@ async def seed(args: argparse.Namespace) -> None:
                 counterparty_name=parties_answer[:500] if parties_answer else None,
                 contract_type=infer_contract_type(document_name),
                 original_filename=filename,
-                storage_path=f"demo/cuad/{filename}",
+                storage_path="",  # set below, once we know the contract's id
                 file_hash=hashlib.sha256(f"{filename}:{contract_count}".encode()).hexdigest(),
                 status=random.choices(
                     [
@@ -451,6 +480,26 @@ async def seed(args: argparse.Namespace) -> None:
             await session.flush()
             contract_count += 1
 
+            pdf_path = pdf_index.get(filename)
+            if pdf_path is not None:
+                contract.storage_path = save_contract_file(
+                    org_id=org.id,
+                    contract_id=contract.id,
+                    file_kind="pdf",
+                    data=pdf_path.read_bytes(),
+                )
+            else:
+                missing_pdfs += 1
+                # Every contract still needs a real file on disk — the
+                # frontend's PDF preview 404s otherwise. A short, honest
+                # placeholder beats a broken preview.
+                contract.storage_path = save_contract_file(
+                    org_id=org.id,
+                    contract_id=contract.id,
+                    file_kind="pdf",
+                    data=_placeholder_pdf_bytes(document_name),
+                )
+
             obligations = build_obligations(contract.id, row, today)
             for obligation in obligations:
                 if obligation.category in (
@@ -466,6 +515,11 @@ async def seed(args: argparse.Namespace) -> None:
 
     print(f"Seeded org {DEMO_ORG_NAME!r} with {len(users)} users, {contract_count} contracts, "
           f"{obligation_count} obligations.")
+    if missing_pdfs:
+        print(
+            f"  ({missing_pdfs} contract(s) used a placeholder PDF — original file "
+            "not found under full_contract_pdf/)"
+        )
     print("Obligation status breakdown:")
     for status, count in sorted(status_counts.items(), key=lambda kv: kv[0].value):
         print(f"  {status.value:10s} {count}")

@@ -155,7 +155,12 @@ async def get_contract_file(
     contract = await _get_org_contract(db, current_user, contract_id)
     suffix = Path(contract.storage_path).suffix
     content_type = _CONTENT_TYPE_BY_SUFFIX.get(suffix, "application/octet-stream")
-    data = read_contract_file(contract.storage_path)
+    try:
+        data = read_contract_file(contract.storage_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found."
+        ) from exc
     # original_filename is user-supplied at upload time — escape it for safe
     # use inside a quoted-string header value (RFC 6266) rather than trust it.
     safe_filename = (
