@@ -98,40 +98,75 @@ end to end rather than trusting a green test suite alone.
 
 ## Architecture
 
+The diagram below is the literal, sequential path a contract takes through
+the system — starting where every session starts, at login — not just a
+box-and-line inventory of services.
+
 ```mermaid
-flowchart TB
-    User(["Legal Ops / Procurement User"]) -->|"upload, review, search"| FE["React + TypeScript SPA - typed client from OpenAPI schema"]
-    FE -->|"REST, JWT bearer auth"| API
+flowchart TD
+    classDef actor fill:#dbeafe,stroke:#1e40af,stroke-width:2.5px,color:#1e3a8a
+    classDef auth fill:#eef2ff,stroke:#4f46e5,stroke-width:2px,color:#1e1b4b
+    classDef free fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b
+    classDef paid fill:#fffbeb,stroke:#d97706,stroke-width:2.5px,color:#78350f
+    classDef review fill:#fff1f2,stroke:#e11d48,stroke-width:2px,color:#881337
+    classDef data fill:#f8fafc,stroke:#475569,stroke-width:2px,color:#0f172a
+    classDef worker fill:#f5f3ff,stroke:#7c3aed,stroke-width:2px,color:#3b0764
 
-    subgraph API["FastAPI Backend"]
-        AuthN["Auth and RBAC - JWT + bcrypt + rate limiting"]
-        Ingestion["Document Ingestion - PyMuPDF / python-docx"]
-        PreFilter["Deterministic Pre-filter - regex: dates, durations, keywords"]
-        Embedding["Local Embeddings - sentence-transformers, CPU-only"]
-        Dedup["Clause Dedup - pgvector cosine similarity"]
-        Extraction["LLM Extraction - Groq primary / Gemini fallback"]
-        Review["Review Queue and Obligation APIs"]
-        Precedents["Precedent Search"]
+    User(["👤 Legal Ops / Procurement User"]):::actor
+
+    User -->|"1 . Sign in"| Auth["`**Auth & RBAC**
+    JWT access/refresh · bcrypt · rate limiting`"]:::auth
+
+    Auth -->|"2 . Upload contract"| Ingest["`**Document Ingestion**
+    PyMuPDF / python-docx`"]:::free
+
+    Ingest --> PreFilter
+
+    subgraph Funnel["Token-Minimization Funnel (all free)"]
+        direction TB
+        PreFilter["`**Regex Pre-Filter**
+        dates · durations · keywords`"]:::free
+        PreFilter --> Embed["`**Local Embeddings**
+        sentence-transformers, CPU-only`"]:::free
+        Embed --> DedupCheck{"`Seen this
+        clause before?`"}:::free
     end
+    style Funnel fill:#f0fdf4,stroke:#059669,stroke-width:1px,stroke-dasharray: 4 3
 
-    Ingestion --> PreFilter
-    PreFilter --> Embedding
-    Embedding --> Dedup
-    Dedup -->|"cache miss - one batched call"| Extraction
-    Dedup -.->|"cache hit - zero LLM cost"| Review
-    Extraction --> Review
-    Embedding --> Precedents
+    DedupCheck -->|"cache hit"| Persist
+    DedupCheck -->|"cache miss"| LLM["`**LLM Extraction**
+    Groq primary → Gemini fallback`"]:::paid
 
-    API --> DB[("PostgreSQL 16 + pgvector")]
-    API --> FS[["Local File Storage - UUID-keyed, outside web root"]]
+    LLM --> Persist[("Obligations & Audit Log")]:::data
 
-    Worker["Background Worker - APScheduler daily job"] --> DB
-    Worker -->|"recompute status, send alerts"| Email[["Email Alerts via SMTP"]]
+    Persist --> ReviewCheck{"`Low confidence, or
+    high-stakes clause?`"}:::review
+    ReviewCheck -->|"yes"| Queue["`**Review Queue**
+    confirm · edit · waive`"]:::review
+    ReviewCheck -->|"no"| Calendar
+    Queue --> Calendar["`**Compliance Calendar**
+    live, org-scoped view`"]:::data
 
-    DB --> Calendar["Compliance Calendar"]
-    Calendar -.-> User
-    Email -.-> User
+    Calendar --> Worker["`**Background Worker**
+    daily APScheduler job`"]:::worker
+    Worker -.->|"recomputes status"| Calendar
+    Worker -->|"sends alerts"| Alert["`**Email Alerts**
+    SMTP, deduped per day`"]:::worker
+
+    Alert -.->|"notifies"| User
+
+    Embed -.->|"anytime: search"| Search["`**Precedent Search**
+    cosine similarity over every clause`"]:::free
 ```
+
+**Green** stages are local and free — the regex pre-filter, the
+CPU-only embedding model, and clause-level dedup all run before a single
+paid token is spent. **Amber** is the one stage that costs money, entered
+only on a cache miss. **Rose** is the human-in-the-loop gate: any
+obligation below a confidence threshold, or touching a high-stakes
+category like renewal or termination notice, is never auto-trusted.
+**Violet** is the daily background job that keeps the compliance calendar
+live without a user ever having to ask.
 
 Every query is scoped by the authenticated user's organization at the
 database level — a user from one organization can never see another's

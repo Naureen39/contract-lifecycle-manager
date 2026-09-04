@@ -686,6 +686,54 @@ before calling a feature done.
 
 ---
 
+## Post-Launch Review Pass
+
+A deliberate second look at the codebase after all eleven phases shipped —
+the kind of pass a real team does before calling something production-ready,
+not a one-time build-and-forget. Two real, exploitable bugs surfaced,
+neither of which had been caught by the existing test suite because both
+required actually thinking about the malicious/unlucky case rather than
+the happy path a feature's own tests are written against:
+
+- **Cross-org obligation assignment.** `PATCH /obligations/{id}` applied
+  `assigned_to` straight from the request body with no check that the
+  referenced user belonged to the same organization as the obligation. An
+  editor could assign — and, via `services/alerts.py`'s recipient
+  resolution, route alert emails to — a user in a completely different
+  organization. The FK constraint on `assigned_to` only guarantees the
+  UUID resolves to *some* user, not one in the caller's own org; that
+  second check has to be explicit. Fixed by validating the assignee's
+  `org_id` against the current user's before applying the change, with
+  tests for both the rejected cross-org case and the accepted same-org
+  case.
+- **PDF preview breaking on token expiry.** The contract detail page's
+  inline preview fetched the file via a raw `fetch()` call outside the
+  typed API client, so it never got the client's 401-refresh interceptor
+  (see Phase 8) — a session left open past the access token's 15-minute
+  lifetime would show a permanent "could not load the document" error
+  even with a perfectly valid refresh cookie. Fixed by routing it through
+  `apiClient.GET(..., { parseAs: "blob" })` instead — the same typed
+  client every other request uses, openapi-fetch's documented way to get
+  a binary response instead of JSON. Verified against a live backend (a
+  small throwaway Node script using the real `openapi-fetch` client
+  confirmed a genuine `Blob` came back with the right content-type and
+  byte count) rather than trusting that it typechecked.
+
+The architecture diagram in the README was also rebuilt from scratch as
+part of this pass: previously a static inventory of services grouped by
+backend/frontend, now the literal sequential path a contract takes
+starting from login, color-coded by cost (free local processing vs. the
+one paid LLM stage) and by who's in the loop (automated vs. human
+review). Validated by actually rendering it — `@mermaid-js/mermaid-cli`
+against the exact Mermaid block committed to the README, not a
+by-eye read of the syntax — which caught two real layout bugs before they
+shipped: a subgraph title overlapping the node beneath it, and a decision
+node's text wrapping mid-word. Both are exactly the kind of thing that
+looks fine in source and breaks on GitHub's renderer specifically, which
+is why the fix was to render it, not just to write it.
+
+---
+
 ## Current Status
 
 All eleven phases of the build plan are implemented and pushed to `main`.
