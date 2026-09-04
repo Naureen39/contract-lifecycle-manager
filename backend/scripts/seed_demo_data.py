@@ -33,6 +33,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.security import hash_password
 from app.db.enums import (
     ContractStatus,
     ContractType,
@@ -43,11 +44,13 @@ from app.db.enums import (
 )
 from app.db.models import (
     Alert,
+    AuditLog,
     Contract,
     ContractChunk,
     ExtractionJob,
     Obligation,
     Organization,
+    RefreshToken,
     User,
 )
 from app.db.session import AsyncSessionLocal
@@ -57,10 +60,10 @@ DEFAULT_CUAD_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "cuad_v1" / "CUAD_v1" / "master_clauses.csv"
 )
 
-# A demo user's hashed_password is not a real bcrypt hash — real password
-# hashing (passlib/bcrypt) is wired up in Phase 2. These accounts cannot
-# actually log in until then; the value below is deliberately unusable.
-UNUSABLE_SEED_PASSWORD_HASH = "!seed-data-no-real-login-until-phase-2-auth!"
+# Every seeded demo user shares this password (bcrypt-hashed for real, via
+# app.core.security.hash_password) so a live demo can actually log in — see
+# DEMO_SCRIPT.md.
+DEMO_USER_PASSWORD = "ObliTrackDemo!2026"
 
 CONTRACT_TYPE_KEYWORDS: list[tuple[str, ContractType]] = [
     ("non-disclosure", ContractType.NDA),
@@ -320,6 +323,9 @@ async def wipe_existing_demo_org(session: AsyncSession, org_id: uuid.UUID) -> No
     obligation_ids = (
         await session.execute(select(Obligation.id).where(Obligation.contract_id.in_(contract_ids)))
     ).scalars().all()
+    user_ids = (
+        await session.execute(select(User.id).where(User.org_id == org_id))
+    ).scalars().all()
 
     if obligation_ids:
         await session.execute(delete(Alert).where(Alert.obligation_id.in_(obligation_ids)))
@@ -332,6 +338,14 @@ async def wipe_existing_demo_org(session: AsyncSession, org_id: uuid.UUID) -> No
             delete(ExtractionJob).where(ExtractionJob.contract_id.in_(contract_ids))
         )
         await session.execute(delete(Contract).where(Contract.id.in_(contract_ids)))
+    # A demo user can genuinely log in (real bcrypt password, see
+    # DEMO_USER_PASSWORD), which writes audit_log/refresh_tokens rows
+    # referencing them — both FK to users.id, so they must go before the
+    # users themselves or this delete fails. Every audit_log row always
+    # carries this org's org_id, so filtering on that alone is sufficient.
+    await session.execute(delete(AuditLog).where(AuditLog.org_id == org_id))
+    if user_ids:
+        await session.execute(delete(RefreshToken).where(RefreshToken.user_id.in_(user_ids)))
     await session.execute(delete(User).where(User.org_id == org_id))
     await session.execute(delete(Organization).where(Organization.id == org_id))
     await session.flush()
@@ -363,25 +377,29 @@ async def seed(args: argparse.Namespace) -> None:
         session.add(org)
         await session.flush()
 
+        # Hashed once and reused across all three demo users — they all
+        # share the same DEMO_USER_PASSWORD, and bcrypt hashing is
+        # deliberately expensive; no reason to pay that cost three times.
+        demo_password_hash = hash_password(DEMO_USER_PASSWORD)
         users = [
             User(
                 org_id=org.id,
-                email="admin@demo.oblitrack.test",
-                hashed_password=UNUSABLE_SEED_PASSWORD_HASH,
+                email="admin@demo.oblitrack.example",
+                hashed_password=demo_password_hash,
                 role=UserRole.ADMIN,
                 full_name="Dana Admin",
             ),
             User(
                 org_id=org.id,
-                email="counsel@demo.oblitrack.test",
-                hashed_password=UNUSABLE_SEED_PASSWORD_HASH,
+                email="counsel@demo.oblitrack.example",
+                hashed_password=demo_password_hash,
                 role=UserRole.LEGAL_OPS,
                 full_name="Casey Counsel",
             ),
             User(
                 org_id=org.id,
-                email="viewer@demo.oblitrack.test",
-                hashed_password=UNUSABLE_SEED_PASSWORD_HASH,
+                email="viewer@demo.oblitrack.example",
+                hashed_password=demo_password_hash,
                 role=UserRole.VIEWER,
                 full_name="Val Viewer",
             ),
@@ -423,6 +441,11 @@ async def seed(args: argparse.Namespace) -> None:
                 original_expiration_date=parse_cuad_date(row.get("Expiration Date-Answer", "")),
                 governing_law=(row.get("Governing Law-Answer", "").strip() or None),
                 extraction_confidence=round(random.uniform(0.6, 0.99), 2),
+                # CUAD has no contract-value field — synthesized so the
+                # dashboard's "total active value" card has something real
+                # to show rather than always reading empty in a demo.
+                contract_value=round(random.uniform(10_000, 2_000_000), 2),
+                currency="USD",
             )
             session.add(contract)
             await session.flush()
@@ -446,6 +469,9 @@ async def seed(args: argparse.Namespace) -> None:
     print("Obligation status breakdown:")
     for status, count in sorted(status_counts.items(), key=lambda kv: kv[0].value):
         print(f"  {status.value:10s} {count}")
+    print(f"\nDemo login (any account) — password: {DEMO_USER_PASSWORD}")
+    for user in users:
+        print(f"  {user.email}  ({user.role.value})")
 
 
 def main(argv: list[str] | None = None) -> None:
