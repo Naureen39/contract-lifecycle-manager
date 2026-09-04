@@ -7,7 +7,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { apiClient, apiOrigin, getAccessToken } from '@/lib/api-client'
+import { apiClient } from '@/lib/api-client'
 import { CONTRACT_STATUS_LABEL, CONTRACT_STATUS_TONE, categoryLabel } from '@/lib/status'
 
 function useContractFilePreview(contractId: string, enabled: boolean) {
@@ -21,14 +21,16 @@ function useContractFilePreview(contractId: string, enabled: boolean) {
 
     async function load() {
       try {
-        const response = await fetch(`${apiOrigin}/api/v1/contracts/${contractId}/file`, {
-          credentials: 'include',
-          headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
-        })
-        if (!response.ok) throw new Error('Failed to load file')
-        const blob = await response.blob()
+        // Goes through apiClient (not a raw fetch) so the 401-refresh
+        // interceptor applies here too — an access token can easily expire
+        // while a contract detail page is left open (15-minute lifetime).
+        const { data: blob, error: fetchError } = await apiClient.GET(
+          '/api/v1/contracts/{contract_id}/file',
+          { params: { path: { contract_id: contractId } }, parseAs: 'blob' },
+        )
+        if (fetchError || !blob) throw new Error('Failed to load file')
         if (cancelled) return
-        objectUrl = URL.createObjectURL(blob)
+        objectUrl = URL.createObjectURL(blob as Blob)
         setUrl(objectUrl)
       } catch {
         if (!cancelled) setError(true)

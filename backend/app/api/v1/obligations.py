@@ -154,6 +154,13 @@ async def update_obligation(
     obligation = await _get_org_obligation(db, current_user, obligation_id)
 
     changes = body.model_dump(exclude_unset=True)
+    if body.assigned_to is not None:
+        assignee = await db.get(User, body.assigned_to)
+        if assignee is None or assignee.org_id != current_user.org_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assigned_to must be a user in your organization.",
+            )
     for field, value in changes.items():
         setattr(obligation, field, value)
 

@@ -210,6 +210,61 @@ async def test_patch_obligation_waive_sets_status(
 
 
 @pytest.mark.asyncio
+async def test_patch_obligation_rejects_assignee_from_another_org(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org, admin = await _make_org_and_admin(
+        db_session, org_name="Acme", email="assign-owner@example.com"
+    )
+    other_org, other_user = await _make_org_and_admin(
+        db_session, org_name="Other Org", email="assign-outsider@example.com"
+    )
+    contract = await _make_contract(db_session, org_id=org.id, uploaded_by=admin.id)
+    obligation = await _make_obligation(db_session, contract_id=contract.id)
+
+    token = create_access_token(user_id=admin.id, org_id=org.id, role=UserRole.ADMIN)
+    response = await client.patch(
+        f"/api/v1/obligations/{obligation.id}",
+        json={"assigned_to": str(other_user.id)},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert obligation.assigned_to is None
+
+
+@pytest.mark.asyncio
+async def test_patch_obligation_accepts_assignee_from_same_org(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org, admin = await _make_org_and_admin(
+        db_session, org_name="Acme", email="assign-owner2@example.com"
+    )
+    contract = await _make_contract(db_session, org_id=org.id, uploaded_by=admin.id)
+    obligation = await _make_obligation(db_session, contract_id=contract.id)
+
+    legal_ops = User(
+        org_id=org.id,
+        email="assign-teammate@example.com",
+        hashed_password="irrelevant",
+        role=UserRole.LEGAL_OPS,
+        full_name="Teammate",
+    )
+    db_session.add(legal_ops)
+    await db_session.flush()
+
+    token = create_access_token(user_id=admin.id, org_id=org.id, role=UserRole.ADMIN)
+    response = await client.patch(
+        f"/api/v1/obligations/{obligation.id}",
+        json={"assigned_to": str(legal_ops.id)},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assigned_to"] == str(legal_ops.id)
+
+
+@pytest.mark.asyncio
 async def test_patch_obligation_edits_trigger_date_recomputes_alert_and_status(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
