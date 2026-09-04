@@ -97,7 +97,13 @@ export function AppShell() {
             <p className="truncate text-sm font-medium">{user?.full_name}</p>
             <p className="truncate text-xs text-sidebar-foreground/60">{user?.email}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void logout()} title="Log out">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => void logout()}
+            title="Log out"
+            aria-label="Log out"
+          >
             <LogOut className="size-4" />
           </Button>
         </div>

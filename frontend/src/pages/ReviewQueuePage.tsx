@@ -111,6 +111,7 @@ export function ReviewQueuePage() {
                   size="icon-sm"
                   variant="outline"
                   title="Confirm"
+                  aria-label="Confirm obligation"
                   disabled={confirmMutation.isPending}
                   onClick={() => confirmMutation.mutate(obligation.id)}
                 >
@@ -120,6 +121,7 @@ export function ReviewQueuePage() {
                   size="icon-sm"
                   variant="outline"
                   title="Edit"
+                  aria-label="Edit obligation"
                   onClick={() => setEditing(obligation)}
                 >
                   <Pencil className="size-4" />
@@ -128,6 +130,7 @@ export function ReviewQueuePage() {
                   size="icon-sm"
                   variant="outline"
                   title="Waive"
+                  aria-label="Waive obligation"
                   disabled={waiveMutation.isPending}
                   onClick={() => waiveMutation.mutate(obligation.id)}
                 >

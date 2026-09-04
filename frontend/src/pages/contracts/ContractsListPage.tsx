@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -49,6 +49,7 @@ function UploadDialog({ onUploaded }: { onUploaded: () => void }) {
   const [title, setTitle] = useState('')
   const [contractType, setContractType] = useState<ContractType>('Other')
   const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -130,14 +131,20 @@ function UploadDialog({ onUploaded }: { onUploaded: () => void }) {
             ) : (
               <p className="text-muted-foreground">Drag a file here, or</p>
             )}
-            <Label htmlFor="file-input" className="cursor-pointer text-primary underline-offset-4 hover:underline">
+            <button
+              type="button"
+              className="cursor-pointer text-primary underline-offset-4 hover:underline"
+              onClick={() => fileInputRef.current?.click()}
+            >
               browse files
-            </Label>
+            </button>
             <Input
+              ref={fileInputRef}
               id="file-input"
               type="file"
               accept=".pdf,.docx"
               className="hidden"
+              aria-label="Contract file"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </div>
