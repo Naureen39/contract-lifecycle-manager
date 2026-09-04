@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_role
@@ -24,9 +25,14 @@ from app.services.file_validation import (
     enforce_size_limit,
 )
 from app.services.ingestion import ingest_contract_document
-from app.services.storage import save_contract_file
+from app.services.storage import read_contract_file, save_contract_file
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
+
+_CONTENT_TYPE_BY_SUFFIX = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 
 _EDITOR_ROLES = (UserRole.ADMIN, UserRole.LEGAL_OPS)
 
@@ -136,6 +142,30 @@ async def get_contract(
     db: DbSession, current_user: CurrentUser, contract_id: uuid.UUID
 ) -> Contract:
     return await _get_org_contract(db, current_user, contract_id)
+
+
+@router.get("/{contract_id}/file")
+async def get_contract_file(
+    db: DbSession, current_user: CurrentUser, contract_id: uuid.UUID
+) -> Response:
+    """Streams the original uploaded file back — e.g. for the frontend's
+    inline PDF viewer. `storage_path` is always server-generated
+    (`{org_id}/{contract_id}.{ext}`, never derived from user input — see
+    services/storage.py), so this is safe from path traversal."""
+    contract = await _get_org_contract(db, current_user, contract_id)
+    suffix = Path(contract.storage_path).suffix
+    content_type = _CONTENT_TYPE_BY_SUFFIX.get(suffix, "application/octet-stream")
+    data = read_contract_file(contract.storage_path)
+    # original_filename is user-supplied at upload time — escape it for safe
+    # use inside a quoted-string header value (RFC 6266) rather than trust it.
+    safe_filename = (
+        contract.original_filename.replace("\\", "\\\\").replace('"', '\\"')
+    ).translate({0x0D: None, 0x0A: None})
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_filename}"'},
+    )
 
 
 @router.get("/{contract_id}/status", response_model=ContractStatusResponse)

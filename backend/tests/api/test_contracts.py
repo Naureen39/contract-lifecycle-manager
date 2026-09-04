@@ -378,3 +378,42 @@ async def test_upload_accepts_docx(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201, response.text
+
+
+@pytest.mark.asyncio
+async def test_get_contract_file_returns_original_bytes(client: AsyncClient) -> None:
+    token = await _register_and_login(client, org_name="Acme", email="admin12@example.com")
+
+    upload = await client.post(
+        "/api/v1/contracts",
+        headers=_auth_headers(token),
+        files={"file": ("renewal.pdf", _RENEWAL_CONTRACT_PDF, "application/pdf")},
+    )
+    contract_id = upload.json()["contract"]["id"]
+
+    response = await client.get(
+        f"/api/v1/contracts/{contract_id}/file", headers=_auth_headers(token)
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content == _RENEWAL_CONTRACT_PDF
+
+
+@pytest.mark.asyncio
+async def test_get_contract_file_is_scoped_to_org(client: AsyncClient) -> None:
+    token_a = await _register_and_login(client, org_name="Org A", email="fileA@example.com")
+    token_b = await _register_and_login(client, org_name="Org B", email="fileB@example.com")
+
+    upload = await client.post(
+        "/api/v1/contracts",
+        headers=_auth_headers(token_a),
+        files={"file": ("renewal.pdf", _RENEWAL_CONTRACT_PDF, "application/pdf")},
+    )
+    contract_id = upload.json()["contract"]["id"]
+
+    response = await client.get(
+        f"/api/v1/contracts/{contract_id}/file", headers=_auth_headers(token_b)
+    )
+
+    assert response.status_code == 404
