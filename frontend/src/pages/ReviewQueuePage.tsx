@@ -114,6 +114,7 @@ export function ReviewQueuePage() {
                   aria-label="Confirm obligation"
                   disabled={confirmMutation.isPending}
                   onClick={() => confirmMutation.mutate(obligation.id)}
+                  className="hover:border-chart-2 hover:bg-chart-2/10 hover:text-chart-2"
                 >
                   <Check className="size-4" />
                 </Button>
@@ -123,6 +124,7 @@ export function ReviewQueuePage() {
                   title="Edit"
                   aria-label="Edit obligation"
                   onClick={() => setEditing(obligation)}
+                  className="hover:border-primary hover:bg-primary/10 hover:text-primary"
                 >
                   <Pencil className="size-4" />
                 </Button>
@@ -133,6 +135,7 @@ export function ReviewQueuePage() {
                   aria-label="Waive obligation"
                   disabled={waiveMutation.isPending}
                   onClick={() => waiveMutation.mutate(obligation.id)}
+                  className="hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <X className="size-4" />
                 </Button>

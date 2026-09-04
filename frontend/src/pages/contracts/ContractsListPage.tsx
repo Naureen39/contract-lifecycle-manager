@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Plus, Upload } from 'lucide-react'
 
@@ -190,6 +190,7 @@ function UploadDialog({ onUploaded }: { onUploaded: () => void }) {
 
 export function ContractsListPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [statusFilter, setStatusFilter] = useState<string>('all')
 
   const { data, isPending, isError } = useQuery({
@@ -246,34 +247,44 @@ export function ContractsListPage() {
       ) : null}
 
       {data && data.length > 0 ? (
-        <div className="rounded-lg border">
+        <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Counterparty</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Expiration</TableHead>
+                <TableHead className="w-[34%]">Title</TableHead>
+                <TableHead className="w-[26%]">Counterparty</TableHead>
+                <TableHead className="w-[14%]">Type</TableHead>
+                <TableHead className="w-[14%]">Status</TableHead>
+                <TableHead className="w-[12%]">Expiration</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.map((contract) => (
-                <TableRow key={contract.id} className="cursor-pointer">
-                  <TableCell className="font-medium">
-                    <Link to={`/contracts/${contract.id}`} className="hover:underline">
+                <TableRow
+                  key={contract.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/contracts/${contract.id}`)}
+                >
+                  <TableCell className="max-w-0 font-medium">
+                    <span className="block truncate" title={contract.title}>
                       {contract.title}
-                    </Link>
+                    </span>
                   </TableCell>
-                  <TableCell>{contract.counterparty_name ?? '—'}</TableCell>
-                  <TableCell>{contract.contract_type}</TableCell>
+                  <TableCell className="max-w-0 text-muted-foreground">
+                    <span className="block truncate" title={contract.counterparty_name ?? undefined}>
+                      {contract.counterparty_name ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{contract.contract_type}</TableCell>
                   <TableCell>
                     <StatusBadge
                       tone={CONTRACT_STATUS_TONE[contract.status]}
                       label={CONTRACT_STATUS_LABEL[contract.status]}
                     />
                   </TableCell>
-                  <TableCell>{contract.original_expiration_date ?? '—'}</TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {contract.original_expiration_date ?? '—'}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

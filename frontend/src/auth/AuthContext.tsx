@@ -1,4 +1,4 @@
-import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { apiClient, setAccessToken, setRefreshHandler } from '@/lib/api-client'
@@ -26,15 +26,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserPublic | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
 
-  const refresh = useCallback(async (): Promise<string | null> => {
-    const { data, error } = await apiClient.POST('/api/v1/auth/refresh')
-    if (error || !data) {
-      setAccessToken(null)
-      setUser(null)
-      return null
+  // Refresh tokens are single-use (rotated server-side on every call), so
+  // two near-simultaneous refresh() calls racing each other is a real
+  // failure mode, not just wasted work — the loser gets a 401 off a token
+  // the winner already rotated out from under it. React StrictMode's
+  // dev-only double-invocation of the mount effect below hits this exact
+  // race every time; sharing one in-flight promise across callers (this
+  // effect, and api-client's 401-retry handler) closes it for good.
+  const inFlightRefresh = useRef<Promise<string | null> | null>(null)
+
+  const refresh = useCallback((): Promise<string | null> => {
+    if (!inFlightRefresh.current) {
+      inFlightRefresh.current = (async () => {
+        const { data, error } = await apiClient.POST('/api/v1/auth/refresh')
+        if (error || !data) {
+          setAccessToken(null)
+          setUser(null)
+          return null
+        }
+        setAccessToken(data.access_token)
+        return data.access_token
+      })().finally(() => {
+        inFlightRefresh.current = null
+      })
     }
-    setAccessToken(data.access_token)
-    return data.access_token
+    return inFlightRefresh.current
   }, [])
 
   useEffect(() => {

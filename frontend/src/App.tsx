@@ -1,40 +1,72 @@
+import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { ProtectedRoute } from '@/auth/ProtectedRoute'
 import { AppShell } from '@/components/layout/AppShell'
+import { LoadingState } from '@/components/QueryState'
 import { LoginPage } from '@/pages/auth/LoginPage'
-import { RegisterPage } from '@/pages/auth/RegisterPage'
-import { DashboardPage } from '@/pages/DashboardPage'
-import { ContractsListPage } from '@/pages/contracts/ContractsListPage'
-import { ContractDetailPage } from '@/pages/contracts/ContractDetailPage'
-import { ReviewQueuePage } from '@/pages/ReviewQueuePage'
-import { CalendarPage } from '@/pages/CalendarPage'
-import { PrecedentSearchPage } from '@/pages/PrecedentSearchPage'
-import { LLMUsagePage } from '@/pages/admin/LLMUsagePage'
-import { AuditLogPage } from '@/pages/admin/AuditLogPage'
+
+// Code-split everything behind the login gate — an unauthenticated visitor
+// (or one who's just signing in) never needs the dashboard's chart
+// library, the calendar, or any of the rest of it in their initial bundle.
+const RegisterPage = lazy(() =>
+  import('@/pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })),
+)
+const DashboardPage = lazy(() =>
+  import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+)
+const ContractsListPage = lazy(() =>
+  import('@/pages/contracts/ContractsListPage').then((m) => ({ default: m.ContractsListPage })),
+)
+const ContractDetailPage = lazy(() =>
+  import('@/pages/contracts/ContractDetailPage').then((m) => ({
+    default: m.ContractDetailPage,
+  })),
+)
+const ReviewQueuePage = lazy(() =>
+  import('@/pages/ReviewQueuePage').then((m) => ({ default: m.ReviewQueuePage })),
+)
+const CalendarPage = lazy(() =>
+  import('@/pages/CalendarPage').then((m) => ({ default: m.CalendarPage })),
+)
+const PrecedentSearchPage = lazy(() =>
+  import('@/pages/PrecedentSearchPage').then((m) => ({ default: m.PrecedentSearchPage })),
+)
+const LLMUsagePage = lazy(() =>
+  import('@/pages/admin/LLMUsagePage').then((m) => ({ default: m.LLMUsagePage })),
+)
+const AuditLogPage = lazy(() =>
+  import('@/pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
+)
+
+function RouteFallback() {
+  return <LoadingState label="Loading..." />
+}
 
 function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/contracts" element={<ContractsListPage />} />
-          <Route path="/contracts/:contractId" element={<ContractDetailPage />} />
-          <Route path="/review-queue" element={<ReviewQueuePage />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/precedents" element={<PrecedentSearchPage />} />
-          <Route path="/admin/llm-usage" element={<LLMUsagePage />} />
-          <Route path="/audit-log" element={<AuditLogPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/contracts" element={<ContractsListPage />} />
+            <Route path="/contracts/:contractId" element={<ContractDetailPage />} />
+            <Route path="/review-queue" element={<ReviewQueuePage />} />
+            <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/precedents" element={<PrecedentSearchPage />} />
+            <Route path="/admin/llm-usage" element={<LLMUsagePage />} />
+            <Route path="/audit-log" element={<AuditLogPage />} />
+          </Route>
         </Route>
-      </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 

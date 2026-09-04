@@ -734,6 +734,72 @@ is why the fix was to render it, not just to write it.
 
 ---
 
+## Frontend Design Pass
+
+A second look specifically at the frontend's visual design, prompted by
+exactly the right complaint: it worked, but it looked like an unstyled
+shadcn scaffold, not a product. The root cause was structural, not
+cosmetic — `index.css`'s entire color system was `oklch(X 0 0)` (zero
+chroma) end to end, including all five chart colors. There was no brand
+color anywhere except what individual pages had hand-rolled with Tailwind
+utility classes.
+
+**Rebuilt the color system** around one indigo accent, with the chart-1
+through chart-5 tokens set to the *exact* hex values already used for
+`StatusBadge`'s tones and the README's architecture diagram (emerald,
+amber, rose, violet) — so a chart segment and a status pill mean the same
+thing everywhere in the app, not two color systems that happen to share a
+page. Wired up real dark mode via **next-themes** (already an indirect
+dependency, via shadcn's own `sonner` toast component, but never actually
+connected to a `ThemeProvider` before this).
+
+**Rebuilt `AppShell`** with a fixed dark-slate sidebar against a
+theme-able light/dark content area — a deliberate, common enterprise
+pattern (Linear, Vercel, Supabase all do this), not an inversion bug — a
+real logo mark, an active-nav-item indicator bar, and the user identity
+control converted from a bare logout icon into a proper dropdown menu.
+
+**Added real charts to the dashboard** using shadcn's official `chart`
+component (a thin wrapper around **Recharts** — the library the build
+plan's own tech-stack table specified from the start but that nothing had
+actually used until now): obligations by category, and a 6-month forward
+view by status, both computed client-side from the same `/obligations`
+list already used elsewhere rather than a new endpoint.
+
+**Fixed real bugs found by actually clicking through the app, not by
+reading the code:**
+- The contracts table's Counterparty column had no width constraint,
+  pushing Type/Status/Expiration off-screen — visible only once real
+  (long) counterparty names from actual seeded contracts were on screen,
+  not with placeholder data.
+- A genuine race condition in `AuthContext`: React StrictMode
+  double-invokes effects in development, and the mount-time
+  "silently refresh the session" effect called `refresh()` directly. Two
+  near-simultaneous calls both read the same httpOnly refresh cookie
+  before either got a response; the backend's refresh-token rotation
+  (single-use by design, revoked on use) meant one call's success revoked
+  the token the other was about to use, so the second got a 401 and could
+  bounce a just-logged-in user back to the login screen. Fixed by sharing
+  one in-flight promise across concurrent callers (the same pattern
+  `api-client.ts`'s 401-retry interceptor already used, just not applied
+  to the bootstrap effect itself). Confirmed fixed by tracing the actual
+  network requests through a real login, not by reasoning about the code.
+
+**Split the JS bundle by route** (`React.lazy` per page, `LoginPage`
+still eager) once adding Recharts pushed the single bundle to 917KB
+gzipped 284KB — an unauthenticated visitor's login page has no business
+loading a charting library. The initial bundle dropped to 331KB gzipped
+103KB, with the dashboard's charts (and everything else behind the login
+gate) loading on demand instead.
+
+Verified end to end with a real headless browser (`chrome-headless-shell`,
+already on the machine from the mermaid-diagram work) driving actual
+login → navigate → screenshot cycles against the real running app and
+backend, not a mock — which is how the table overflow and the auth race
+were actually found, not from re-reading the diffs.
+
+---
+
 ## Current Status
 
 All eleven phases of the build plan are implemented and pushed to `main`.
