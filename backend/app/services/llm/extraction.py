@@ -11,7 +11,7 @@ See docs/CONTRACT_CLM_BUILD_PLAN.md §3, §7, and §12 Phase 5.
 import hashlib
 import logging
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -23,7 +23,6 @@ from app.db.enums import (
     ExtractionJobStatus,
     LLMProviderName,
     ObligationCategory,
-    ObligationStatus,
 )
 from app.db.models import ClausePrecedentCache, Contract, ContractChunk, ExtractionJob, Obligation
 from app.schemas.extraction import ContractExtractionResult, ExtractedObligation
@@ -38,6 +37,7 @@ from app.services.llm.prompt import (
     build_user_prompt,
     chunk_label,
 )
+from app.services.obligation_dates import compute_alert_date, initial_obligation_status
 
 logger = logging.getLogger(__name__)
 
@@ -102,25 +102,6 @@ async def _call_llm_with_fallback(
     return None
 
 
-def _compute_alert_date(trigger_date: date | None, notice_period_days: int | None) -> date | None:
-    if trigger_date is None or notice_period_days is None:
-        return None
-    return trigger_date - timedelta(days=notice_period_days)
-
-
-def _initial_obligation_status(
-    trigger_date: date | None, computed_alert_date: date | None
-) -> ObligationStatus:
-    if trigger_date is None:
-        return ObligationStatus.UPCOMING
-    today = date.today()
-    if trigger_date < today:
-        return ObligationStatus.OVERDUE
-    if computed_alert_date is not None and computed_alert_date <= today:
-        return ObligationStatus.AT_RISK
-    return ObligationStatus.UPCOMING
-
-
 def _is_human_reviewed(category: ObligationCategory, confidence: float) -> bool:
     """Every obligation touching TERMINATION_NOTICE/RENEWAL, or below the
     confidence threshold, is surfaced for human review — this system
@@ -138,7 +119,7 @@ def _build_obligation(
     raw_source_text: str,
     extracted: ExtractedObligation,
 ) -> Obligation:
-    computed_alert_date = _compute_alert_date(extracted.trigger_date, extracted.notice_period_days)
+    computed_alert_date = compute_alert_date(extracted.trigger_date, extracted.notice_period_days)
     return Obligation(
         contract_id=contract_id,
         source_chunk_id=source_chunk_id,
@@ -151,7 +132,7 @@ def _build_obligation(
         monetary_amount=extracted.monetary_amount,
         currency=extracted.currency,
         recurrence=extracted.recurrence,
-        status=_initial_obligation_status(extracted.trigger_date, computed_alert_date),
+        status=initial_obligation_status(extracted.trigger_date, computed_alert_date),
         confidence_score=extracted.confidence,
         is_human_reviewed=_is_human_reviewed(extracted.category, extracted.confidence),
         raw_source_text=raw_source_text,
