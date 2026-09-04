@@ -81,3 +81,24 @@ async def test_select_provider_returns_none_when_nothing_has_headroom(
     monkeypatch.setattr(get_settings(), "gemini_api_key", None)
 
     assert await quota.select_provider(db_session) is None
+
+
+@pytest.mark.asyncio
+async def test_get_usage_summary_includes_providers_with_no_calls_yet(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
+    await quota.record_usage(db_session, LLMProviderName.GROQ, tokens=42)
+
+    summaries = await quota.get_usage_summary(db_session)
+
+    assert {s.provider for s in summaries} == {LLMProviderName.GROQ, LLMProviderName.GEMINI}
+    groq_summary = next(s for s in summaries if s.provider == LLMProviderName.GROQ)
+    assert groq_summary.requests_used == 1
+    assert groq_summary.tokens_used == 42
+    assert groq_summary.has_headroom is True
+
+    gemini_summary = next(s for s in summaries if s.provider == LLMProviderName.GEMINI)
+    assert gemini_summary.requests_used == 0
+    assert gemini_summary.has_headroom is False

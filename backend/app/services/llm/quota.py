@@ -78,6 +78,40 @@ async def select_provider(session: AsyncSession) -> LLMProviderName | None:
     return None
 
 
+@dataclass(frozen=True)
+class ProviderUsageSummary:
+    provider: LLMProviderName
+    date: date
+    requests_used: int
+    tokens_used: int
+    requests_limit: int
+    tokens_limit: int
+    has_headroom: bool
+
+
+async def get_usage_summary(session: AsyncSession) -> list[ProviderUsageSummary]:
+    """Today's usage for every provider, for the admin ops view
+    (docs/CONTRACT_CLM_BUILD_PLAN.md §8's `GET /admin/llm-usage`) — includes
+    providers with zero calls today so the dashboard always shows every
+    configured provider, not just the ones that happened to be used."""
+    limits = _provider_limits()
+    summaries = []
+    for provider in PROVIDER_ORDER:
+        usage = await _usage_today(session, provider)
+        summaries.append(
+            ProviderUsageSummary(
+                provider=provider,
+                date=date.today(),
+                requests_used=usage.requests_used if usage is not None else 0,
+                tokens_used=usage.tokens_used if usage is not None else 0,
+                requests_limit=limits[provider].requests_per_day,
+                tokens_limit=limits[provider].tokens_per_day,
+                has_headroom=await has_headroom(session, provider),
+            )
+        )
+    return summaries
+
+
 async def record_usage(session: AsyncSession, provider: LLMProviderName, *, tokens: int) -> None:
     usage = await _usage_today(session, provider)
     if usage is None:
