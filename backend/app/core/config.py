@@ -62,12 +62,16 @@ class Settings(BaseSettings):
     gemini_daily_request_limit: int = 250
     gemini_daily_token_limit: int = 1_000_000
 
-    # --- SMTP (wired up in Phase 7) ---
+    # --- SMTP / scheduler (wired up in Phase 7) ---
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from_address: str | None = None
+    # UTC time the daily obligation-status-recompute + alert-scan job runs
+    # in the `worker` process — see app/worker.py and services/alerts.py.
+    alert_scan_hour_utc: int = 7
+    alert_scan_minute_utc: int = 0
 
     @model_validator(mode="after")
     def _forbid_insecure_defaults_in_production(self) -> "Settings":

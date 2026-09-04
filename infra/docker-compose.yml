@@ -33,9 +33,9 @@ services:
       postgres:
         condition: service_healthy
 
-  # NOTE: app.worker (the APScheduler daily alert-scan process) is implemented
-  # in Phase 7 of docs/CONTRACT_CLM_BUILD_PLAN.md. This service is wired now
-  # so the compose topology matches the target architecture from day one.
+  # Runs the daily obligation-status-recompute + alert-scan job via
+  # APScheduler (app/worker.py) — see docs/CONTRACT_CLM_BUILD_PLAN.md §12
+  # Phase 7.
   worker:
     build:
       context: ../backend
@@ -49,6 +49,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # The image's baked-in HEALTHCHECK curls the api's HTTP port, which
+    # this process never opens — disable it rather than have a working
+    # worker permanently reported unhealthy.
+    healthcheck:
+      disable: true
 
   frontend:
     build:

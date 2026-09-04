@@ -1,12 +1,13 @@
 """Top-level aggregator for all /api/v1 routers.
 
-Feature routers (alerts, precedents) are registered here as they are
-implemented in later phases.
+Feature routers (precedents) are registered here as they are implemented in
+later phases.
 """
 
 from fastapi import APIRouter
 
 from app.api.v1.admin import router as admin_router
+from app.api.v1.alerts import router as alerts_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.contracts import router as contracts_router
 from app.api.v1.dashboard import router as dashboard_router
@@ -20,3 +21,4 @@ api_router.include_router(admin_router)
 api_router.include_router(contracts_router)
 api_router.include_router(obligations_router)
 api_router.include_router(dashboard_router)
+api_router.include_router(alerts_router)
