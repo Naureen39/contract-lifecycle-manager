@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # --- LLM providers (wired up in Phase 5) ---
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
+    # Conservative free-tier defaults per docs/CONTRACT_CLM_BUILD_PLAN.md
+    # §3 ("Groq: ~1,000 requests/day, ~200K tokens/day"; Gemini's free
+    # tier is vaguer — "a few hundred to ~1,500 RPD depending on model" —
+    # so this defaults to the low end). Override via env once you know
+    # your account's actual observed limits.
+    groq_daily_request_limit: int = 1000
+    groq_daily_token_limit: int = 200_000
+    gemini_daily_request_limit: int = 250
+    gemini_daily_token_limit: int = 1_000_000
 
     # --- SMTP (wired up in Phase 7) ---
     smtp_host: str | None = None

@@ -8,10 +8,42 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import create_access_token
-from app.db.enums import UserRole
+from app.db.enums import LLMProviderName, UserRole
 from app.db.models import ContractChunk, User
 from app.services.file_validation import MAX_UPLOAD_SIZE_BYTES
+from app.services.llm import extraction as extraction_module
+from app.services.llm.base import LLMCompletionResult, LLMProvider
+
+_MOCK_LLM_RESPONSE = """
+{
+  "contract_type_guess": "Other",
+  "obligations": [
+    {
+      "category": "RENEWAL",
+      "description": "Contract auto-renews for successive 1 year terms.",
+      "responsible_party": "Either party",
+      "notice_period_days": 90,
+      "recurrence": "annually",
+      "source_paragraph_id": "P0",
+      "confidence": 0.9
+    }
+  ]
+}
+"""
+
+
+class _StubProvider(LLMProvider):
+    """A canned-response LLMProvider, monkeypatched in for
+    extraction._build_provider so API-level tests exercise the real
+    upload -> extraction pipeline without ever calling a real LLM API —
+    see docs/CONTRACT_CLM_BUILD_PLAN.md's rule that CI never does that."""
+
+    name = LLMProviderName.GROQ
+
+    async def complete_json(self, *, system_prompt: str, user_prompt: str) -> LLMCompletionResult:
+        return LLMCompletionResult(text=_MOCK_LLM_RESPONSE, tokens_used=123)
 
 
 def _build_pdf_bytes(lines: list[str]) -> bytes:
@@ -210,7 +242,12 @@ async def test_contracts_are_scoped_to_org(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_contract_status_reports_latest_extraction_job(client: AsyncClient) -> None:
+async def test_get_contract_status_reports_latest_extraction_job(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
+    monkeypatch.setattr(extraction_module, "_build_provider", lambda name: _StubProvider())
+
     token = await _register_and_login(client, org_name="Acme", email="admin6@example.com")
 
     upload = await client.post(
@@ -225,8 +262,39 @@ async def test_get_contract_status_reports_latest_extraction_job(client: AsyncCl
     )
     assert response.status_code == 200
     body = response.json()
+    assert body["contract_status"] in ("processing", "needs_review")
+    latest_job = body["latest_extraction_job"]
+    assert latest_job["status"] == "succeeded"
+    assert latest_job["llm_provider_used"] == "groq"
+    assert latest_job["tokens_used_estimate"] == 123
+
+
+@pytest.mark.asyncio
+async def test_upload_with_no_llm_provider_configured_leaves_job_queued(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CI/local dev never has real LLM keys set by default (see
+    .env.example) — the request must still succeed, just with obligation
+    extraction deferred rather than the whole upload failing."""
+    monkeypatch.setattr(get_settings(), "groq_api_key", None)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
+
+    token = await _register_and_login(client, org_name="Acme", email="admin11@example.com")
+
+    upload = await client.post(
+        "/api/v1/contracts",
+        headers=_auth_headers(token),
+        files={"file": ("renewal.pdf", _RENEWAL_CONTRACT_PDF, "application/pdf")},
+    )
+    assert upload.status_code == 201, upload.text
+    contract_id = upload.json()["contract"]["id"]
+
+    response = await client.get(
+        f"/api/v1/contracts/{contract_id}/status", headers=_auth_headers(token)
+    )
+    body = response.json()
     assert body["contract_status"] == "processing"
-    assert body["latest_extraction_job"]["status"] == "succeeded"
+    assert body["latest_extraction_job"]["status"] == "queued"
 
 
 @pytest.mark.asyncio

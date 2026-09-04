@@ -1,13 +1,14 @@
-"""Orchestrates parsing + chunking + pre-filtering + embedding for one
-contract.
+"""Orchestrates parsing + chunking + pre-filtering + embedding + LLM
+extraction for one contract, end to end.
 
-Runs synchronously inside the upload request rather than via a background
-task/worker: this stage is fast, CPU-only, local work with no network calls
-(the embedding model runs on-device) — nothing here benefits from being
-offloaded yet. Phase 5's LLM extraction call is the step that actually
-needs async job processing — via the `worker` process already wired in
-infra/docker-compose.yml — and that's where extraction_jobs.status will
-start meaning something over a non-trivial time window.
+Runs synchronously inside the upload request: parsing/chunking/embedding is
+fast, CPU-only, local work with no network calls (the embedding model runs
+on-device), and the LLM extraction call at the end is a single batched
+request per contract (docs/CONTRACT_CLM_BUILD_PLAN.md §3 step 4) rather than
+one per paragraph, so it stays well within request-timeout budgets. If no
+provider currently has quota headroom, extract_contract_obligations leaves
+extraction_job.status as QUEUED instead of failing the request — a future
+scheduled sweep (alongside Phase 7's daily alert scan) can retry those.
 """
 
 import logging
@@ -22,6 +23,7 @@ from app.services.category_reference import passes_semantic_filter
 from app.services.document_parser import parse_document
 from app.services.embeddings import embed_texts
 from app.services.file_validation import FileKind
+from app.services.llm.extraction import extract_contract_obligations
 from app.services.prefilter import classify_chunk
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,6 @@ async def ingest_contract_document(
         )
 
     db.add_all(chunks)
-
-    extraction_job.status = ExtractionJobStatus.SUCCEEDED
-    extraction_job.finished_at = datetime.now(UTC)
     await db.flush()
+
+    await extract_contract_obligations(db, contract=contract, extraction_job=extraction_job)
