@@ -6,8 +6,10 @@ from app.api.deps import DbSession, require_role
 from app.db.enums import UserRole
 from app.db.models import User
 from app.schemas.alert import AlertScanResponse
+from app.schemas.extraction import ExtractionRetryResponse
 from app.schemas.llm_usage import LLMUsageSummary
 from app.services.alerts import run_alert_scan
+from app.services.ingestion import retry_queued_extractions
 from app.services.llm import quota
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -38,6 +40,26 @@ async def trigger_alert_scan(
         alerts_sent=result.alerts_sent,
         alerts_failed=result.alerts_failed,
         alerts_skipped_duplicate=result.alerts_skipped_duplicate,
+    )
+
+
+@router.post("/extraction/retry", response_model=ExtractionRetryResponse)
+async def trigger_extraction_retry(
+    db: DbSession,
+    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+) -> ExtractionRetryResponse:
+    """Re-attempts every extraction_job still QUEUED — left that way when no
+    LLM provider had quota headroom at upload time. Runs on the worker's own
+    schedule too (see worker.py); this endpoint exists for the same
+    on-demand testing/demoing reason as /admin/alerts/scan. Scans the whole
+    platform, not just this admin's org, matching that endpoint's scope.
+    """
+    result = await retry_queued_extractions(db)
+    await db.commit()
+    return ExtractionRetryResponse(
+        jobs_retried=result.jobs_retried,
+        jobs_succeeded=result.jobs_succeeded,
+        jobs_still_queued=result.jobs_still_queued,
     )
 
 

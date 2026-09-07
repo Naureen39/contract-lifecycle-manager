@@ -7,6 +7,7 @@ must provide.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -17,10 +18,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _INSECURE_DEV_JWT_SECRET = "dev-only-insecure-secret-change-me"
 _INSECURE_DEV_DB_CREDENTIALS = "oblitrack:oblitrack@"
 
+# Resolved from this file's own location rather than left as the relative
+# ".env" pydantic-settings default: the README's native dev workflow runs
+# uvicorn from inside backend/, while .env/.env.example live at the repo
+# root (required there so Docker Compose's `cp .env.example .env` step
+# works). A cwd-relative path silently found nothing in that case — every
+# optional setting (LLM provider keys included) fell back to its default
+# with no error, which is exactly what let a real deployed .env go unread.
+_REPO_ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_REPO_ROOT_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -72,6 +82,10 @@ class Settings(BaseSettings):
     # in the `worker` process — see app/worker.py and services/alerts.py.
     alert_scan_hour_utc: int = 7
     alert_scan_minute_utc: int = 0
+    # How often the `worker` process retries extraction_jobs left QUEUED
+    # because no LLM provider had quota headroom at upload time — see
+    # app/worker.py and services/ingestion.py's retry_queued_extractions.
+    extraction_retry_interval_minutes: int = 30
 
     @model_validator(mode="after")
     def _forbid_insecure_defaults_in_production(self) -> "Settings":

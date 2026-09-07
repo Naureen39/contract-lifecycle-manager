@@ -7,18 +7,21 @@ on-device), and the LLM extraction call at the end is a single batched
 request per contract (docs/CONTRACT_CLM_BUILD_PLAN.md §3 step 4) rather than
 one per paragraph, so it stays well within request-timeout budgets. If no
 provider currently has quota headroom, extract_contract_obligations leaves
-extraction_job.status as QUEUED instead of failing the request — a future
-scheduled sweep (alongside Phase 7's daily alert scan) can retry those.
+extraction_job.status as QUEUED instead of failing the request — see
+retry_queued_extractions below for the sweep that picks those back up.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
 from app.db.enums import ContractStatus, ExtractionJobStatus
-from app.db.models import Contract, ContractChunk, ExtractionJob
+from app.db.models import Contract, ContractChunk, ExtractionJob, Obligation
 from app.services.category_reference import passes_semantic_filter
 from app.services.document_parser import parse_document
 from app.services.embeddings import embed_texts
@@ -96,3 +99,41 @@ async def ingest_contract_document(
     await db.flush()
 
     await extract_contract_obligations(db, contract=contract, extraction_job=extraction_job)
+
+
+@dataclass
+class ExtractionRetryResult:
+    jobs_retried: int = 0
+    jobs_succeeded: int = 0
+    jobs_still_queued: int = 0
+
+
+async def retry_queued_extractions(session: AsyncSession) -> ExtractionRetryResult:
+    """Picks back up every extraction_job still QUEUED — left that way by
+    extract_contract_obligations when no provider had headroom on the first
+    attempt. A cache-hit obligation can already have been persisted for some
+    of the contract's chunks before that happened, so any prior obligations
+    for the contract are discarded first: extract_contract_obligations
+    re-processes every candidate chunk from scratch, and without this a
+    retry would duplicate those cache-hit rows.
+    """
+    result = await session.execute(
+        select(ExtractionJob)
+        .where(ExtractionJob.status == ExtractionJobStatus.QUEUED)
+        .options(selectinload(ExtractionJob.contract))
+    )
+    outcome = ExtractionRetryResult()
+    for job in result.scalars().all():
+        outcome.jobs_retried += 1
+        await session.execute(delete(Obligation).where(Obligation.contract_id == job.contract_id))
+        job.status = ExtractionJobStatus.RUNNING
+        job.started_at = datetime.now(UTC)
+        await session.flush()
+        await extract_contract_obligations(session, contract=job.contract, extraction_job=job)
+        if job.status == ExtractionJobStatus.SUCCEEDED:
+            outcome.jobs_succeeded += 1
+        else:
+            outcome.jobs_still_queued += 1
+
+    await session.flush()
+    return outcome

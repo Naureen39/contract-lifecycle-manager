@@ -30,3 +30,9 @@ class ContractExtractionResult(BaseModel):
     effective_date_guess: date | None = None
     expiration_date_guess: date | None = None
     obligations: list[ExtractedObligation] = Field(default_factory=list)
+
+
+class ExtractionRetryResponse(BaseModel):
+    jobs_retried: int
+    jobs_succeeded: int
+    jobs_still_queued: int

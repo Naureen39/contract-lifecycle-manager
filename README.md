@@ -231,7 +231,7 @@ python -m venv .venv
 # source .venv/bin/activate && pip install -r requirements.txt -r requirements-dev.txt  # macOS/Linux
 
 ./.venv/Scripts/python -m uvicorn app.main:app --reload   # http://localhost:8000
-./.venv/Scripts/python -m pytest                          # 127 tests
+./.venv/Scripts/python -m pytest                          # 134 tests
 ./.venv/Scripts/python -m ruff check .                     # lint
 ./.venv/Scripts/python -m mypy app scripts tests            # type-check
 ```

@@ -800,16 +800,80 @@ were actually found, not from re-reading the diffs.
 
 ---
 
+## Code Review & Live-Data Testing Pass
+
+A third pass, this time backend-focused: a systematic RBAC/org-scoping
+audit of every endpoint, a dependency vulnerability re-scan, and — the part
+that actually found something — exercising the real running stack with
+real data rather than reasoning about the code in the abstract.
+
+**Static audit: clean.** Every `select(...)` across all nine
+`app/api/v1/*.py` route files was traced by hand: every mutation endpoint
+is role-gated via `require_role(...)`, every read endpoint filters by
+`Contract.org_id`/`current_user.org_id` (directly or via join), and the
+two endpoints that intentionally query without an org filter —
+`/admin/alerts/scan` and `/admin/llm-usage` — are deliberately
+platform-wide (shared LLM quota, worker-parity scope) and admin-only. A
+re-run of `pip-audit` and `npm audit` (the frontend tree has grown
+recharts, next-themes, and shadcn's chart component since the last scan)
+found nothing. A frontend XSS pass found exactly one
+`dangerouslySetInnerHTML` (shadcn's own `chart.tsx`, building a `<style>`
+tag from the dashboard's hardcoded `ChartConfig` — never user- or
+API-supplied data) and confirmed the access token still never touches
+`localStorage`, only the in-memory `AuthContext` plus the httpOnly
+refresh cookie.
+
+**The real find: a contract stuck in `processing` since the day it was
+uploaded.** Live-testing the upload flow against the real running backend
+surfaced exactly the gap this document already flagged above as a known
+issue — except actually chasing it down turned up a second bug underneath
+the first one:
+
+- `services/llm/quota.py`'s `has_headroom` was `False` for both providers
+  despite `requests_used: 0` — not quota exhaustion, but that neither
+  `GROQ_API_KEY` nor `GEMINI_API_KEY` was configured at all for the
+  running server. Tracing *why* led to `app/core/config.py`: pydantic-settings'
+  `env_file=".env"` resolves relative to the process's **current working
+  directory**, but the README's native-dev instructions run uvicorn from
+  inside `backend/`, while `.env`/`.env.example` live at the repo root
+  (correctly — Docker Compose's `cp .env.example .env` step needs them
+  there). The result: a developer who fills in the root `.env` exactly as
+  documented gets it silently ignored the moment they follow the *other*
+  documented workflow, with no error — every optional setting just
+  quietly falls back to its default. Fixed by resolving `env_file` from
+  `config.py`'s own location (`Path(__file__).resolve().parents[3] /
+  ".env"`) instead of the ambient cwd, so both documented workflows read
+  the same file. (This also uncovered that the committed-nowhere local
+  `.env` itself had a stale Postgres password left over from before it
+  was filled in — fixed alongside, since the config fix would otherwise
+  have broken the very setup it was meant to repair.)
+- Underneath that: even with a provider genuinely out of headroom, nothing
+  in the codebase ever retried a `QUEUED` extraction job —
+  `services/ingestion.py`'s own docstring promised "a future scheduled
+  sweep" that was never actually built; `worker.py` only ever ran the
+  daily alert scan. Added `retry_queued_extractions` (discards any
+  cache-hit obligations a partial attempt already persisted before
+  re-running, so a retry can't duplicate them), wired it into `worker.py`
+  as a second scheduled job (`EXTRACTION_RETRY_INTERVAL_MINUTES`, default
+  30), and exposed it as `POST /admin/extraction/retry` for the same
+  on-demand testing/demoing reason `/admin/alerts/scan` exists. Verified
+  through the full integration-test path (real Postgres, real FastAPI
+  `TestClient`, a stub LLM provider) rather than a live curl call — this
+  session's sandbox had a stuck "ghost" process holding port 8000 that
+  neither `taskkill` nor `Stop-Process` could actually terminate, a known
+  quirk from earlier in this same session; the fix needs the developer's
+  own terminal restarted to take effect locally.
+
+**A quieter confirmation, found the same way:** repeatedly re-logging in
+while probing RBAC boundaries tripped `/auth/login`'s `5/minute` rate
+limit for real — the control working exactly as designed against a live
+attacker-shaped request pattern, not just passing in isolation under test.
+
 ## Current Status
 
 All eleven phases of the build plan are implemented and pushed to `main`.
 Known gaps, called out here rather than left to be discovered:
 
-- **No retry sweep for queued extractions.** If no LLM provider had quota
-  headroom at upload time, the extraction job is left `QUEUED` and nothing
-  currently revisits it automatically — a contract stuck this way needs a
-  fresh upload or a manual trigger. The daily worker process would be the
-  natural place to add this.
 - **Admin Settings is scoped to what the backend actually supports.** The
   plan's Admin Settings page also describes user/role management and
   per-category lead-time configuration; neither has a backend API, so the

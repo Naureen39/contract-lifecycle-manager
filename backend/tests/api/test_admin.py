@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import create_access_token
-from app.db.enums import LLMProviderName, UserRole
-from app.db.models import AuditLog, Organization, User
+from app.db.enums import ContractStatus, ExtractionJobStatus, LLMProviderName, UserRole
+from app.db.models import AuditLog, Contract, ExtractionJob, Organization, User
 from app.services.llm import quota
 
 
@@ -76,6 +76,58 @@ async def test_llm_usage_reflects_recorded_usage(
     gemini_entry = next(entry for entry in body if entry["provider"] == "gemini")
     assert gemini_entry["requests_used"] == 0
     assert gemini_entry["has_headroom"] is False
+
+
+@pytest.mark.asyncio
+async def test_extraction_retry_requires_admin_role(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    org, _admin = await _make_org_and_admin(db_session, org_name="Acme", email="retry1@example.com")
+    legal_ops = User(
+        org_id=org.id,
+        email="legalops-retry@example.com",
+        hashed_password="irrelevant",
+        role=UserRole.LEGAL_OPS,
+        full_name="Legal Ops",
+    )
+    db_session.add(legal_ops)
+    await db_session.flush()
+
+    token = create_access_token(user_id=legal_ops.id, org_id=org.id, role=UserRole.LEGAL_OPS)
+    response = await client.post("/api/v1/admin/extraction/retry", headers=_auth_headers(token))
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_extraction_retry_reports_still_queued_without_provider_headroom(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org, admin = await _make_org_and_admin(db_session, org_name="Acme", email="retry2@example.com")
+    monkeypatch.setattr(get_settings(), "groq_api_key", None)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
+    contract = Contract(
+        org_id=org.id,
+        uploaded_by=admin.id,
+        title="Stuck Contract",
+        original_filename="stuck.pdf",
+        storage_path="storage/stuck.pdf",
+        file_hash="c" * 64,
+        status=ContractStatus.PROCESSING,
+    )
+    db_session.add(contract)
+    await db_session.flush()
+    db_session.add(ExtractionJob(contract_id=contract.id, status=ExtractionJobStatus.QUEUED))
+    await db_session.flush()
+
+    token = create_access_token(user_id=admin.id, org_id=org.id, role=UserRole.ADMIN)
+    response = await client.post("/api/v1/admin/extraction/retry", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["jobs_retried"] == 1
+    assert body["jobs_succeeded"] == 0
+    assert body["jobs_still_queued"] == 1
 
 
 @pytest.mark.asyncio
