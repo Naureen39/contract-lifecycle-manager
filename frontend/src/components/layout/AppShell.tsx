@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import {
   BarChart3,
@@ -11,10 +11,10 @@ import {
   LogOut,
   MessageSquare,
   ScrollText,
-  ShieldCheck,
 } from 'lucide-react'
 
 import { useAuth } from '@/auth/AuthContext'
+import { Logo } from '@/components/Logo'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -41,6 +41,27 @@ const ADMIN_NAV_ITEMS = [
   { to: '/admin/llm-usage', label: 'LLM Usage', icon: BarChart3 },
   { to: '/audit-log', label: 'Audit Log', icon: ScrollText },
 ]
+
+// Static, route-derived label for the top bar — deliberately independent
+// of each page's own (often dynamic) PageHeader title, e.g. a contract
+// detail page's top-bar label stays "Contract" while its PageHeader shows
+// the real contract.title.
+const ROUTE_TITLES: Record<string, string> = {
+  '/dashboard': 'Dashboard',
+  '/contracts': 'Contracts',
+  '/review-queue': 'Review Queue',
+  '/calendar': 'Compliance Calendar',
+  '/precedents': 'Precedent Search',
+  '/chat': 'Chat Assistant',
+  '/admin/llm-usage': 'LLM Usage',
+  '/audit-log': 'Audit Log',
+}
+
+function routeTitle(pathname: string): string | null {
+  if (ROUTE_TITLES[pathname]) return ROUTE_TITLES[pathname]
+  if (pathname.startsWith('/contracts/')) return 'Contract'
+  return null
+}
 
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Admin',
@@ -103,15 +124,14 @@ function NavSection({
 
 export function AppShell() {
   const { user, logout } = useAuth()
+  const location = useLocation()
+  const title = routeTitle(location.pathname)
 
   return (
     <div className="flex min-h-svh">
       <aside className="flex w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
-        <div className="flex h-14 items-center gap-2.5 px-4">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-            <ShieldCheck className="size-4" />
-          </span>
-          <span className="text-[15px] font-semibold tracking-tight">ObliTrack</span>
+        <div className="flex h-14 items-center px-4">
+          <Logo variant="full" className="size-7" wordmarkClassName="text-sidebar-foreground" />
         </div>
         <Separator className="bg-sidebar-border" />
 
@@ -160,7 +180,8 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-end gap-1 border-b px-6">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-1 border-b px-6">
+          <h2 className="text-sm font-medium text-foreground/80">{title}</h2>
           <ThemeToggle />
         </header>
         <main className="flex-1 overflow-y-auto bg-background">

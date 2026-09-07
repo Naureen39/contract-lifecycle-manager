@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Plus, Upload } from 'lucide-react'
 
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -125,7 +126,9 @@ function UploadDialog({ onUploaded }: { onUploaded: () => void }) {
               if (dropped) setFile(dropped)
             }}
           >
-            <Upload className="size-6 text-muted-foreground" />
+            <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Upload className="size-5" />
+            </span>
             {file ? (
               <p className="font-medium">{file.name}</p>
             ) : (
@@ -208,17 +211,15 @@ export function ContractsListPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Contracts</h1>
-          <p className="text-sm text-muted-foreground">
-            Every contract your organization has uploaded.
-          </p>
-        </div>
-        <UploadDialog
-          onUploaded={() => void queryClient.invalidateQueries({ queryKey: ['contracts'] })}
-        />
-      </div>
+      <PageHeader
+        title="Contracts"
+        description="Every contract your organization has uploaded."
+        actions={
+          <UploadDialog
+            onUploaded={() => void queryClient.invalidateQueries({ queryKey: ['contracts'] })}
+          />
+        }
+      />
 
       <div className="flex items-center gap-2">
         <Select value={statusFilter} onValueChange={(value) => value && setStatusFilter(value)}>

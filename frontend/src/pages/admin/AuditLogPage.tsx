@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -19,12 +20,10 @@ export function AuditLogPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
-        <p className="text-sm text-muted-foreground">
-          Every state-changing action taken in your organization, most recent first.
-        </p>
-      </div>
+      <PageHeader
+        title="Audit Log"
+        description="Every state-changing action taken in your organization, most recent first."
+      />
 
       {isPending ? <LoadingState label="Loading audit log..." /> : null}
       {isError ? <ErrorState message="Could not load the audit log." /> : null}

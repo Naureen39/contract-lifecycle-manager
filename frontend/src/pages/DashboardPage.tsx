@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -95,12 +96,10 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          A live view of your organization&apos;s obligation compliance.
-        </p>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="A live view of your organization's obligation compliance."
+      />
 
       {summaryQuery.isPending ? <LoadingState label="Loading dashboard..." /> : null}
       {summaryQuery.isError ? (
@@ -109,7 +108,7 @@ export function DashboardPage() {
 
       {summaryQuery.data ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
+          <Card className="border-l-2 border-l-chart-3">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 At Risk
@@ -117,13 +116,13 @@ export function DashboardPage() {
               <AlertTriangle className="size-4 text-chart-3" />
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold tabular-nums">
+              <p className="text-4xl font-semibold tabular-nums">
                 {summaryQuery.data.at_risk_count}
               </p>
               <p className="text-xs text-muted-foreground">obligations need attention soon</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-l-2 border-l-chart-4">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Overdue
@@ -131,13 +130,13 @@ export function DashboardPage() {
               <Clock className="size-4 text-chart-4" />
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold tabular-nums">
+              <p className="text-4xl font-semibold tabular-nums">
                 {summaryQuery.data.overdue_count}
               </p>
               <p className="text-xs text-muted-foreground">past their trigger date</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-l-2 border-l-chart-1">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Upcoming This Month
@@ -145,13 +144,13 @@ export function DashboardPage() {
               <CalendarClock className="size-4 text-chart-1" />
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold tabular-nums">
+              <p className="text-4xl font-semibold tabular-nums">
                 {summaryQuery.data.upcoming_this_month_count}
               </p>
               <p className="text-xs text-muted-foreground">due before month end</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-l-2 border-l-chart-2">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Total Active Value
@@ -160,11 +159,11 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               {Object.keys(summaryQuery.data.total_active_contract_value).length === 0 ? (
-                <p className="text-3xl font-semibold tabular-nums">—</p>
+                <p className="text-4xl font-semibold tabular-nums">—</p>
               ) : (
                 Object.entries(summaryQuery.data.total_active_contract_value).map(
                   ([currency, amount]) => (
-                    <p key={currency} className="text-3xl font-semibold tabular-nums">
+                    <p key={currency} className="text-4xl font-semibold tabular-nums">
                       {formatCurrency(amount, currency)}
                     </p>
                   ),
@@ -191,7 +190,7 @@ export function DashboardPage() {
             {categoryChartData.length > 0 ? (
               <ChartContainer config={CATEGORY_CHART_CONFIG} className="aspect-auto h-72 w-full">
                 <BarChart data={categoryChartData} layout="vertical" margin={{ left: 8 }}>
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                  <CartesianGrid horizontal={false} strokeDasharray="3 3" strokeOpacity={0.4} />
                   <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
                   <YAxis
                     type="category"
@@ -202,7 +201,7 @@ export function DashboardPage() {
                     tick={{ fontSize: 12 }}
                   />
                   <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                  <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+                  <Bar dataKey="count" fill="var(--color-count)" radius={6} />
                 </BarChart>
               </ChartContainer>
             ) : null}
@@ -218,7 +217,7 @@ export function DashboardPage() {
             {monthChartData.length > 0 ? (
               <ChartContainer config={MONTH_CHART_CONFIG} className="aspect-auto h-72 w-full">
                 <BarChart data={monthChartData}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.4} />
                   <XAxis
                     dataKey="month"
                     tickLine={false}

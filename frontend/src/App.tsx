@@ -9,6 +9,11 @@ import { LoginPage } from '@/pages/auth/LoginPage'
 // Code-split everything behind the login gate — an unauthenticated visitor
 // (or one who's just signing in) never needs the dashboard's chart
 // library, the calendar, or any of the rest of it in their initial bundle.
+// The landing page is split the same way in the other direction: an
+// authenticated user never re-fetches its bundle after their first visit.
+const HomeRoute = lazy(() =>
+  import('@/pages/marketing/HomeRoute').then((m) => ({ default: m.HomeRoute })),
+)
 const RegisterPage = lazy(() =>
   import('@/pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })),
 )
@@ -53,12 +58,12 @@ function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
+        <Route path="/" element={<HomeRoute />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/contracts" element={<ContractsListPage />} />
             <Route path="/contracts/:contractId" element={<ContractDetailPage />} />
@@ -76,7 +81,7 @@ function App() {
           <Route path="/chat/:sessionId" element={<ChatPage />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   )

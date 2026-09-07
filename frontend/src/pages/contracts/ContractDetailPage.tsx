@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { MessageSquare, Maximize2 } from 'lucide-react'
+import { ChevronRight, MessageSquare, Maximize2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Badge } from '@/components/ui/badge'
@@ -81,54 +82,53 @@ export function ContractDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{contract.title}</h1>
-          <p className="text-sm text-muted-foreground">{contract.original_filename}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => startChat.mutate()}
-            disabled={startChat.isPending}
-          >
-            <MessageSquare className="size-4" />
-            Chat about this contract
-          </Button>
-          <StatusBadge
-            tone={CONTRACT_STATUS_TONE[contract.status]}
-            label={CONTRACT_STATUS_LABEL[contract.status]}
-          />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <nav className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Link to="/contracts" className="hover:text-foreground hover:underline">
+              Contracts
+            </Link>
+            <ChevronRight className="size-3" />
+            <span className="truncate text-foreground/70">{contract.title}</span>
+          </nav>
+        }
+        title={contract.title}
+        description={contract.original_filename}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => startChat.mutate()}
+              disabled={startChat.isPending}
+            >
+              <MessageSquare className="size-4" />
+              Chat about this contract
+            </Button>
+            <StatusBadge
+              tone={CONTRACT_STATUS_TONE[contract.status]}
+              label={CONTRACT_STATUS_LABEL[contract.status]}
+            />
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Counterparty</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm font-medium">
-            {contract.counterparty_name ?? '—'}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Effective / Expires</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm font-medium">
+      <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-3">
+        <div className="flex flex-col gap-1 bg-card p-4">
+          <dt className="text-xs font-medium text-muted-foreground">Counterparty</dt>
+          <dd className="text-sm font-medium">{contract.counterparty_name ?? '—'}</dd>
+        </div>
+        <div className="flex flex-col gap-1 bg-card p-4">
+          <dt className="text-xs font-medium text-muted-foreground">Effective / Expires</dt>
+          <dd className="text-sm font-medium tabular-nums">
             {contract.effective_date ?? '—'} → {contract.original_expiration_date ?? '—'}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Governing Law</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm font-medium">
-            {contract.governing_law ?? '—'}
-          </CardContent>
-        </Card>
-      </div>
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 bg-card p-4">
+          <dt className="text-xs font-medium text-muted-foreground">Governing Law</dt>
+          <dd className="text-sm font-medium">{contract.governing_law ?? '—'}</dd>
+        </div>
+      </dl>
 
       {statusQuery.data?.latest_extraction_job ? (
         <Card>

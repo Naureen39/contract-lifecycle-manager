@@ -3,15 +3,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PlayCircle } from 'lucide-react'
 
+import { PageHeader } from '@/components/PageHeader'
 import { ErrorState, LoadingState } from '@/components/QueryState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { apiClient } from '@/lib/api-client'
+import { cn } from '@/lib/utils'
 
 function providerLabel(provider: string): string {
   return provider === 'groq' ? 'Groq' : 'Gemini'
+}
+
+// Status-aware fill for the quota bars — used vs. limit is already
+// computed server-side (usage.has_headroom drives the header Badge), this
+// just extends that same signal to the progress fill itself rather than
+// leaving every bar the flat default primary color regardless of how
+// close to the limit it actually is.
+function usageToneClass(ratio: number): string {
+  if (ratio >= 0.9) return '[&_[data-slot=progress-indicator]]:bg-destructive'
+  if (ratio >= 0.7) return '[&_[data-slot=progress-indicator]]:bg-chart-3'
+  return ''
 }
 
 export function LLMUsagePage() {
@@ -47,18 +60,16 @@ export function LLMUsagePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">LLM Usage</h1>
-          <p className="text-sm text-muted-foreground">
-            Today&apos;s Groq/Gemini quota consumption from the dual-provider extraction pipeline.
-          </p>
-        </div>
-        <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}>
-          <PlayCircle className="size-4" />
-          {scanMutation.isPending ? 'Running scan...' : 'Run alert scan now'}
-        </Button>
-      </div>
+      <PageHeader
+        title="LLM Usage"
+        description="Today's Groq/Gemini quota consumption from the dual-provider extraction pipeline."
+        actions={
+          <Button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}>
+            <PlayCircle className="size-4" />
+            {scanMutation.isPending ? 'Running scan...' : 'Run alert scan now'}
+          </Button>
+        }
+      />
 
       {lastScanMessage ? (
         <p className="text-sm text-muted-foreground">{lastScanMessage}</p>
@@ -84,7 +95,10 @@ export function LLMUsagePage() {
                     {usage.requests_used} / {usage.requests_limit}
                   </span>
                 </div>
-                <Progress value={(usage.requests_used / usage.requests_limit) * 100} />
+                <Progress
+                  value={(usage.requests_used / usage.requests_limit) * 100}
+                  className={cn(usageToneClass(usage.requests_used / usage.requests_limit))}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground">
@@ -93,7 +107,10 @@ export function LLMUsagePage() {
                     {usage.tokens_used.toLocaleString()} / {usage.tokens_limit.toLocaleString()}
                   </span>
                 </div>
-                <Progress value={(usage.tokens_used / usage.tokens_limit) * 100} />
+                <Progress
+                  value={(usage.tokens_used / usage.tokens_limit) * 100}
+                  className={cn(usageToneClass(usage.tokens_used / usage.tokens_limit))}
+                />
               </div>
             </CardContent>
           </Card>

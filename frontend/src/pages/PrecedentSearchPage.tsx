@@ -4,11 +4,29 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Search } from 'lucide-react'
 
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiClient } from '@/lib/api-client'
+import { cn } from '@/lib/utils'
+
+function SimilarityBadge({ similarity }: { similarity: number }) {
+  const strong = similarity >= 0.7
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums',
+        strong
+          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          : 'bg-muted text-muted-foreground',
+      )}
+    >
+      {Math.round(similarity * 100)}% match
+    </span>
+  )
+}
 
 export function PrecedentSearchPage() {
   const [query, setQuery] = useState('')
@@ -33,22 +51,19 @@ export function PrecedentSearchPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Precedent Search</h1>
-        <p className="text-sm text-muted-foreground">
-          Search across every clause your organization has ever ingested — find how similar
-          terms were handled before.
-        </p>
-      </div>
+      <PageHeader
+        title="Precedent Search"
+        description="Search across every clause your organization has ever ingested — find how similar terms were handled before."
+      />
 
       <form className="flex gap-2" onSubmit={handleSubmit}>
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="e.g. limitation of liability cap, 90 day termination notice..."
-          className="max-w-xl"
+          className="h-10 max-w-xl text-base"
         />
-        <Button type="submit" disabled={!query.trim()}>
+        <Button type="submit" size="lg" disabled={!query.trim()}>
           <Search className="size-4" /> Search
         </Button>
       </form>
@@ -73,9 +88,7 @@ export function PrecedentSearchPage() {
                 >
                   {result.contract_title}
                 </Link>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {Math.round(result.similarity * 100)}% match
-                </span>
+                <SimilarityBadge similarity={result.similarity} />
               </div>
               {result.section_heading ? (
                 <p className="text-xs font-medium text-muted-foreground">

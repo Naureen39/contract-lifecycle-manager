@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Check, Pencil, X } from 'lucide-react'
 
 import { ObligationEditDialog } from '@/components/ObligationEditDialog'
+import { PageHeader } from '@/components/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -66,13 +67,10 @@ export function ReviewQueuePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Review Queue</h1>
-        <p className="text-sm text-muted-foreground">
-          Low-confidence and high-stakes obligations (renewals, termination notices) awaiting
-          human confirmation.
-        </p>
-      </div>
+      <PageHeader
+        title="Review Queue"
+        description="Low-confidence and high-stakes obligations (renewals, termination notices) awaiting human confirmation."
+      />
 
       {isPending ? <LoadingState label="Loading review queue..." /> : null}
       {isError ? <ErrorState message="Could not load the review queue." /> : null}
@@ -88,9 +86,9 @@ export function ReviewQueuePage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{categoryLabel(obligation.category)}</Badge>
                   {obligation.confidence_score !== null ? (
-                    <span className="text-xs text-muted-foreground">
+                    <Badge variant="secondary" className="tabular-nums">
                       {Math.round(obligation.confidence_score * 100)}% confidence
-                    </span>
+                    </Badge>
                   ) : null}
                 </div>
                 <p className="text-sm font-medium">{obligation.description}</p>

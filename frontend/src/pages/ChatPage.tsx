@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { MessageSquarePlus, Send, ShieldCheck, Trash2 } from 'lucide-react'
+import { MessageSquarePlus, Send, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ChatDisclaimer } from '@/components/chat/ChatDisclaimer'
 import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble'
 import { CitationPanel } from '@/components/chat/CitationPanel'
+import { Logo } from '@/components/Logo'
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -67,10 +68,7 @@ function SessionSidebar({ activeSessionId }: { activeSessionId: string | undefin
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/20">
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-3">
-        <Link to="/dashboard" className="flex items-center gap-2 text-sm font-medium">
-          <ShieldCheck className="size-4 text-primary" />
-          ObliTrack
-        </Link>
+        <Logo variant="full" href="/dashboard" className="size-4" />
         <Button
           variant="ghost"
           size="icon-sm"
@@ -92,10 +90,16 @@ function SessionSidebar({ activeSessionId }: { activeSessionId: string | undefin
           <div
             key={session.id}
             className={cn(
-              'group flex items-center gap-1 rounded-md px-2 py-1.5',
-              session.id === activeSessionId ? 'bg-sidebar-accent' : 'hover:bg-muted',
+              'group relative flex items-center gap-1 rounded-md px-2.5 py-2',
+              session.id === activeSessionId ? 'bg-accent' : 'hover:bg-muted',
             )}
           >
+            <span
+              className={cn(
+                'absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary transition-opacity',
+                session.id === activeSessionId ? 'opacity-100' : 'opacity-0',
+              )}
+            />
             <Link to={`/chat/${session.id}`} className="min-w-0 flex-1">
               <p className="truncate text-sm">{session.title}</p>
               <p className="truncate text-xs text-muted-foreground">
