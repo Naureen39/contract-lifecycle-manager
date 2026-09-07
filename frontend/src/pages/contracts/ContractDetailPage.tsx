@@ -1,51 +1,16 @@
-import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import { Maximize2 } from 'lucide-react'
 
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { useContractFilePreview } from '@/hooks/useContractFilePreview'
 import { apiClient } from '@/lib/api-client'
 import { CONTRACT_STATUS_LABEL, CONTRACT_STATUS_TONE, categoryLabel } from '@/lib/status'
-
-function useContractFilePreview(contractId: string, enabled: boolean) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [error, setError] = useState(false)
-
-  useEffect(() => {
-    if (!enabled) return
-    let objectUrl: string | null = null
-    let cancelled = false
-
-    async function load() {
-      try {
-        // Goes through apiClient (not a raw fetch) so the 401-refresh
-        // interceptor applies here too — an access token can easily expire
-        // while a contract detail page is left open (15-minute lifetime).
-        const { data: blob, error: fetchError } = await apiClient.GET(
-          '/api/v1/contracts/{contract_id}/file',
-          { params: { path: { contract_id: contractId } }, parseAs: 'blob' },
-        )
-        if (fetchError || !blob) throw new Error('Failed to load file')
-        if (cancelled) return
-        objectUrl = URL.createObjectURL(blob as Blob)
-        setUrl(objectUrl)
-      } catch {
-        if (!cancelled) setError(true)
-      }
-    }
-
-    void load()
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [contractId, enabled])
-
-  return { url, error }
-}
 
 export function ContractDetailPage() {
   const { contractId } = useParams<{ contractId: string }>()
@@ -156,70 +121,74 @@ export function ContractDetailPage() {
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Document preview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isPdf ? (
-              preview.url ? (
-                <iframe
-                  src={preview.url}
-                  title="Contract document"
-                  className="h-[600px] w-full rounded-md border"
-                />
-              ) : preview.error ? (
-                <ErrorState message="Could not load the document preview." />
-              ) : (
-                <LoadingState label="Loading document..." />
-              )
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                Inline preview isn&apos;t available for DOCX files.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Extracted obligations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {obligationsQuery.isPending ? <LoadingState label="Loading obligations..." /> : null}
-            {obligationsQuery.isError ? (
-              <ErrorState message="Could not load obligations." />
-            ) : null}
-            {obligationsQuery.data && obligationsQuery.data.length === 0 ? (
-              <EmptyState
-                title="No obligations extracted yet"
-                description="Extraction may still be in progress, or no obligations were found."
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Document preview</CardTitle>
+          {isPdf && contractId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link to={`/contracts/${contractId}/preview`} />}
+            >
+              <Maximize2 className="size-4" />
+              Full page view
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          {isPdf ? (
+            preview.url ? (
+              <iframe
+                src={preview.url}
+                title="Contract document"
+                className="h-[85vh] w-full rounded-md border"
               />
-            ) : null}
-            <div className="flex flex-col divide-y">
-              {obligationsQuery.data?.map((obligation) => (
-                <div key={obligation.id} className="flex flex-col gap-1 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">
-                      {categoryLabel(obligation.category)}
-                    </span>
-                    <Badge variant={obligation.is_human_reviewed ? 'secondary' : 'outline'}>
-                      {obligation.is_human_reviewed ? 'Reviewed' : 'Needs review'}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{obligation.description}</p>
-                  {obligation.trigger_date ? (
-                    <p className="text-xs text-muted-foreground">
-                      Trigger date: {obligation.trigger_date}
-                    </p>
-                  ) : null}
+            ) : preview.error ? (
+              <ErrorState message="Could not load the document preview." />
+            ) : (
+              <LoadingState label="Loading document..." />
+            )
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Inline preview isn&apos;t available for DOCX files.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Extracted obligations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {obligationsQuery.isPending ? <LoadingState label="Loading obligations..." /> : null}
+          {obligationsQuery.isError ? <ErrorState message="Could not load obligations." /> : null}
+          {obligationsQuery.data && obligationsQuery.data.length === 0 ? (
+            <EmptyState
+              title="No obligations extracted yet"
+              description="Extraction may still be in progress, or no obligations were found."
+            />
+          ) : null}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {obligationsQuery.data?.map((obligation) => (
+              <div key={obligation.id} className="flex flex-col gap-1 rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{categoryLabel(obligation.category)}</span>
+                  <Badge variant={obligation.is_human_reviewed ? 'secondary' : 'outline'}>
+                    {obligation.is_human_reviewed ? 'Reviewed' : 'Needs review'}
+                  </Badge>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                <p className="text-sm text-muted-foreground">{obligation.description}</p>
+                {obligation.trigger_date ? (
+                  <p className="text-xs text-muted-foreground">
+                    Trigger date: {obligation.trigger_date}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Separator />
     </div>

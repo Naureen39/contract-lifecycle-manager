@@ -23,6 +23,11 @@ const ContractDetailPage = lazy(() =>
     default: m.ContractDetailPage,
   })),
 )
+const ContractPreviewPage = lazy(() =>
+  import('@/pages/contracts/ContractPreviewPage').then((m) => ({
+    default: m.ContractPreviewPage,
+  })),
+)
 const ReviewQueuePage = lazy(() =>
   import('@/pages/ReviewQueuePage').then((m) => ({ default: m.ReviewQueuePage })),
 )
@@ -62,6 +67,9 @@ function App() {
             <Route path="/admin/llm-usage" element={<LLMUsagePage />} />
             <Route path="/audit-log" element={<AuditLogPage />} />
           </Route>
+          {/* Deliberately outside AppShell — no sidebar/header chrome, so
+              the document gets the entire viewport. */}
+          <Route path="/contracts/:contractId/preview" element={<ContractPreviewPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
