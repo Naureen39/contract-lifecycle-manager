@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ChatRole
-from app.schemas.chat import ChatAnswer, ChatCitation
+from app.schemas.chat import ChatAnswer, ChatCitation, DeclineReason
 from app.services.chat import guardrails
 from app.services.llm.orchestration import call_llm_with_fallback
 from app.services.retrieval import RetrievedChunk, RetrievedCuadClause
@@ -105,11 +105,12 @@ class _RawChatAnswer(BaseModel):
     confidence: Literal["high", "medium", "low", "insufficient_information"]
 
 
-def _insufficient_information_answer() -> ChatAnswer:
+def _insufficient_information_answer(reason: DeclineReason | None = None) -> ChatAnswer:
     return ChatAnswer(
         answer_text=_INSUFFICIENT_INFORMATION_TEXT,
         citations=[],
         confidence="insufficient_information",
+        decline_reason=reason,
     )
 
 
@@ -178,19 +179,22 @@ async def generate_chat_answer(
         session, system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt, response_model=_RawChatAnswer
     )
     if outcome is None:
-        return _insufficient_information_answer(), 0
+        return _insufficient_information_answer("llm_unavailable"), 0
     _provider, raw, tokens_used = outcome
 
     if raw.confidence == "insufficient_information":
         return (
             ChatAnswer(
-                answer_text=raw.answer_text, citations=[], confidence="insufficient_information"
+                answer_text=raw.answer_text,
+                citations=[],
+                confidence="insufficient_information",
+                decline_reason="llm_self_declined",
             ),
             tokens_used,
         )
 
     if guardrails.contains_legal_advice_framing(raw.answer_text):
-        return _insufficient_information_answer(), tokens_used
+        return _insufficient_information_answer("legal_advice_framing"), tokens_used
 
     sentence_source_pairs: list[tuple[str, str]] = []
     ref_numbers_by_pair_index: list[int] = []
@@ -211,14 +215,14 @@ async def generate_chat_answer(
         ref_numbers_by_pair_index.append(ref_number)
 
     if has_uncited_claim:
-        return _insufficient_information_answer(), tokens_used
+        return _insufficient_information_answer("uncited_claim"), tokens_used
 
     if sentence_source_pairs:
         faithful = await guardrails.check_faithfulness_batch(
             session, sentence_source_pairs=sentence_source_pairs
         )
         if not all(faithful):
-            return _insufficient_information_answer(), tokens_used
+            return _insufficient_information_answer("failed_faithfulness_check"), tokens_used
 
     cited_ref_numbers = sorted(set(ref_numbers_by_pair_index))
     citations = [

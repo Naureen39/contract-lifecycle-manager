@@ -552,6 +552,23 @@ export interface components {
          */
         AlertType: "email" | "in_app";
         /**
+         * AnswerDiagnostics
+         * @description The full "why did the pipeline answer this way" trail for one
+         *     turn — persisted on the assistant ChatMessage (and streamed in the
+         *     SSE `done` event) only when confidence="insufficient_information", so
+         *     a user who gets declined can see what was actually retrieved and
+         *     which guardrail or threshold turned it away, rather than just the
+         *     fixed apology string.
+         */
+        AnswerDiagnostics: {
+            /** Decision Reason */
+            decision_reason: ("no_candidates_found" | "below_relevance_threshold" | "llm_unavailable" | "llm_self_declined" | "legal_advice_framing" | "uncited_claim" | "failed_faithfulness_check") | "answered";
+            /** Relevance Threshold */
+            relevance_threshold: number;
+            /** Attempts */
+            attempts: components["schemas"]["RetrievalAttempt"][];
+        };
+        /**
          * AuditLogEntry
          * @description Built field-by-field in the endpoint rather than via
          *     `model_validate(..., from_attributes=True)`: the ORM attribute is
@@ -716,6 +733,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            retrieval_diagnostics?: components["schemas"]["AnswerDiagnostics"] | null;
         };
         /**
          * ChatRole
@@ -1156,6 +1174,29 @@ export interface components {
             similarity: number;
         };
         /**
+         * RankedCandidate
+         * @description One reranked chunk from a retrieval attempt, kept regardless of
+         *     whether it cleared `chat_min_relevance_threshold` — this is what
+         *     powers the "here's what we found and why it wasn't used" panel on an
+         *     insufficient_information answer. `score` is the same post-sigmoid
+         *     [0,1] cross-encoder score the threshold itself is compared against.
+         */
+        RankedCandidate: {
+            /** Contract Title */
+            contract_title: string;
+            /** Snippet */
+            snippet: string;
+            /** Score */
+            score: number;
+            /** Passed Threshold */
+            passed_threshold: boolean;
+            /**
+             * Is Reference Corpus
+             * @default false
+             */
+            is_reference_corpus: boolean;
+        };
+        /**
          * RecurrenceType
          * @enum {string}
          */
@@ -1173,6 +1214,25 @@ export interface components {
             password: string;
             /** Full Name */
             full_name: string;
+        };
+        /**
+         * RetrievalAttempt
+         * @description One call into `_retrieve_reference_items` (pipeline.py). An
+         *     org-wide question naming a contract by title makes two attempts —
+         *     "narrowed" first, "unrestricted" only if that came back empty — a
+         *     contract-scoped session or an unnamed question makes exactly one,
+         *     "unrestricted".
+         */
+        RetrievalAttempt: {
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "narrowed" | "unrestricted";
+            /** Narrowed To Contract Count */
+            narrowed_to_contract_count: number;
+            /** Top Candidates */
+            top_candidates: components["schemas"]["RankedCandidate"][];
         };
         /** TokenResponse */
         TokenResponse: {

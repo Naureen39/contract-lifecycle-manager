@@ -23,6 +23,7 @@ from app.db.enums import (
     UserRole,
 )
 from app.db.models import Contract, ContractChunk, Obligation, Organization, User
+from app.services.chat import pipeline as pipeline_module
 from app.services.chat.pipeline import run_chat_turn
 from app.services.embeddings import embed_text
 from app.services.llm import orchestration as orchestration_module
@@ -174,6 +175,14 @@ async def test_domain_question_retrieves_and_generates_grounded_answer(
     assert result.answer.confidence == "high"
     assert len(result.answer.citations) == 1
     assert result.answer.citations[0].contract_id == contract.id
+    # A real answer explains itself via its citations, not the diagnostics
+    # panel — decision_reason is still reported for completeness, but the
+    # per-attempt candidate list is what a "why" UI would show for a decline.
+    assert result.diagnostics is not None
+    assert result.diagnostics.decision_reason == "answered"
+    assert len(result.diagnostics.attempts) == 1
+    assert result.diagnostics.attempts[0].scope == "unrestricted"
+    assert any(c.passed_threshold for c in result.diagnostics.attempts[0].top_candidates)
 
 
 @pytest.mark.asyncio
@@ -193,6 +202,77 @@ async def test_domain_question_with_no_matching_chunks_is_insufficient_informati
 
     assert result.intent == ChatIntent.DOMAIN_QUESTION
     assert result.answer.confidence == "insufficient_information"
+    # No contracts/chunks exist in this org at all — RRF fusion found
+    # nothing to even rerank, distinct from "found candidates that scored
+    # too low."
+    assert result.answer.decline_reason == "no_candidates_found"
+    assert result.diagnostics is not None
+    assert result.diagnostics.decision_reason == "no_candidates_found"
+    assert len(result.diagnostics.attempts) == 1
+    assert result.diagnostics.attempts[0].top_candidates == []
+
+
+@pytest.mark.asyncio
+async def test_candidates_below_relevance_threshold_are_reported_not_hidden(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Distinct from the no-candidates case above: a chunk exists and is
+    retrieved, but the cross-encoder considers it a poor match. The
+    diagnostics panel must still surface it (contract title, snippet,
+    real score) rather than collapsing to the same empty attempt as
+    "nothing was ever found" — that distinction is the whole point of
+    building this rather than just returning the fixed apology string."""
+    org, user = await _make_org_user(db_session)
+    contract = Contract(
+        org_id=org.id,
+        uploaded_by=user.id,
+        title="Acme NDA",
+        contract_type=ContractType.NDA,
+        original_filename="test.pdf",
+        storage_path="storage/test.pdf",
+        file_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+        status=ContractStatus.ACTIVE,
+    )
+    db_session.add(contract)
+    await db_session.flush()
+    chunk_text = "Either party may terminate this Agreement upon 60 days written notice."
+    db_session.add(
+        ContractChunk(
+            contract_id=contract.id,
+            paragraph_index=0,
+            raw_text=chunk_text,
+            embedding=embed_text(chunk_text),
+            is_boilerplate=False,
+            passed_prefilter=True,
+        )
+    )
+    await db_session.flush()
+
+    # Force a deterministic below-threshold score rather than relying on
+    # the real cross-encoder to happen to score this pair low — the
+    # threshold-comparison logic is what's under test, not the model.
+    monkeypatch.setattr(
+        pipeline_module, "rerank", lambda question, texts: [0.05 for _ in texts]
+    )
+
+    result = await run_chat_turn(
+        db_session,
+        org_id=org.id,
+        scope=ChatSessionScope.ORGANIZATION,
+        scope_contract_id=None,
+        question="What is the termination notice period?",
+        history=[],
+    )
+
+    assert result.answer.confidence == "insufficient_information"
+    assert result.answer.decline_reason == "below_relevance_threshold"
+    assert result.diagnostics is not None
+    assert result.diagnostics.decision_reason == "below_relevance_threshold"
+    attempt = result.diagnostics.attempts[0]
+    assert len(attempt.top_candidates) == 1
+    assert attempt.top_candidates[0].contract_title == "Acme NDA"
+    assert attempt.top_candidates[0].score == 0.05
+    assert attempt.top_candidates[0].passed_threshold is False
 
 
 @pytest.mark.asyncio
@@ -276,6 +356,13 @@ async def test_org_wide_session_narrows_to_a_contract_named_in_the_question(
     assert len(result.reference_items) == 1
     assert result.reference_items[0].contract_id == named_contract.id
     assert result.answer.confidence == "high"
+    # The narrowed attempt alone succeeded — the unrestricted fallback
+    # (and the decoy contract it would have exposed the model to) was
+    # never even tried.
+    assert result.diagnostics is not None
+    assert len(result.diagnostics.attempts) == 1
+    assert result.diagnostics.attempts[0].scope == "narrowed"
+    assert result.diagnostics.attempts[0].narrowed_to_contract_count == 1
 
 
 @pytest.mark.asyncio
@@ -353,6 +440,12 @@ async def test_org_wide_session_falls_back_when_narrowed_search_finds_nothing(
     assert len(result.reference_items) == 1
     assert result.reference_items[0].contract_id == other_contract.id
     assert result.answer.confidence == "high"
+    # Both attempts are recorded: the narrowed one that came back empty
+    # (named contract had zero chunks) and the unrestricted one that
+    # actually found the answer.
+    assert result.diagnostics is not None
+    assert [a.scope for a in result.diagnostics.attempts] == ["narrowed", "unrestricted"]
+    assert result.diagnostics.attempts[0].top_candidates == []
 
 
 @pytest.mark.asyncio

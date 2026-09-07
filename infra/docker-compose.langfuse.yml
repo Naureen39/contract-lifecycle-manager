@@ -56,6 +56,12 @@ services:
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
       CLICKHOUSE_USER: clickhouse
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-local-dev-clickhouse-change-me}
+      # Explicitly false, not just omitted: unset, Langfuse's own migration
+      # step still issued `CREATE TABLE ... ON CLUSTER default` against a
+      # ReplicatedMergeTree engine, which requires a Zookeeper/ClickHouse
+      # Keeper cluster this single-node setup doesn't have — crash-looped
+      # langfuse-web with "no Zookeeper configuration" until this was set.
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
       LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio

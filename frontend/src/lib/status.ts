@@ -6,6 +6,10 @@ type AlertStatus = components['schemas']['AlertStatus']
 type ExtractionJobStatus = components['schemas']['ExtractionJobStatus']
 type ChatConfidence = components['schemas']['ChatConfidence']
 type ChatIntent = components['schemas']['ChatIntent']
+type DeclineReason = Exclude<
+  components['schemas']['AnswerDiagnostics']['decision_reason'],
+  'answered'
+>
 
 export type BadgeTone = 'neutral' | 'info' | 'warning' | 'danger' | 'success'
 
@@ -90,6 +94,21 @@ export const CHAT_INTENT_LABEL: Record<ChatIntent, string> = {
   clause_benchmark: 'Clause benchmark',
   calendar_query: 'Compliance calendar',
   out_of_scope: 'Out of scope',
+}
+
+/**
+ * Backend's AnswerDiagnostics.decision_reason (pipeline.py's retrieval
+ * outcome plus generation.py's own guardrail chain), collapsed to one
+ * plain-language line each for the "why not enough information?" panel.
+ */
+export const DECLINE_REASON_LABEL: Record<DeclineReason, string> = {
+  no_candidates_found: "Nothing in your organization's contracts matched this question",
+  below_relevance_threshold: "The closest matches found weren't relevant enough to trust",
+  llm_unavailable: 'The AI model was temporarily unavailable',
+  llm_self_declined: "The model reviewed what was found and didn't consider it enough",
+  legal_advice_framing: 'The draft answer read as legal advice rather than contract information',
+  uncited_claim: 'The draft answer made a claim that no source passage actually supported',
+  failed_faithfulness_check: "The draft answer didn't hold up against the source text on review",
 }
 
 export function categoryLabel(category: string): string {

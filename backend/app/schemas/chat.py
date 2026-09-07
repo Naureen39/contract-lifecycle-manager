@@ -7,6 +7,19 @@ from pydantic import BaseModel, Field
 from app.db.enums import ChatConfidence, ChatFeedback, ChatIntent, ChatRole, ChatSessionScope
 
 
+DeclineReason = Literal[
+    # Retrieval stage — decided in pipeline.py, before generation ever runs.
+    "no_candidates_found",
+    "below_relevance_threshold",
+    # Generation stage — decided in generation.py's own guardrail chain.
+    "llm_unavailable",
+    "llm_self_declined",
+    "legal_advice_framing",
+    "uncited_claim",
+    "failed_faithfulness_check",
+]
+
+
 class ChatCitation(BaseModel):
     """One numbered reference in an assistant answer, per plan §4 —
     `ref_number` matches an inline `[n]` marker in `answer_text`.
@@ -35,6 +48,53 @@ class ChatAnswer(BaseModel):
     answer_text: str
     citations: list[ChatCitation] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low", "insufficient_information"]
+    # Only ever set alongside confidence="insufficient_information" — which
+    # of generation.py's guardrail branches (or, filled in afterward by
+    # pipeline.py, which retrieval-stage outcome) actually produced the
+    # decline. None for a real answer.
+    decline_reason: DeclineReason | None = None
+
+
+class RankedCandidate(BaseModel):
+    """One reranked chunk from a retrieval attempt, kept regardless of
+    whether it cleared `chat_min_relevance_threshold` — this is what
+    powers the "here's what we found and why it wasn't used" panel on an
+    insufficient_information answer. `score` is the same post-sigmoid
+    [0,1] cross-encoder score the threshold itself is compared against."""
+
+    contract_title: str
+    snippet: str
+    score: float
+    passed_threshold: bool
+    is_reference_corpus: bool = False
+
+
+class RetrievalAttempt(BaseModel):
+    """One call into `_retrieve_reference_items` (pipeline.py). An
+    org-wide question naming a contract by title makes two attempts —
+    "narrowed" first, "unrestricted" only if that came back empty — a
+    contract-scoped session or an unnamed question makes exactly one,
+    "unrestricted"."""
+
+    scope: Literal["narrowed", "unrestricted"]
+    # 0 for "unrestricted"; otherwise how many contracts the question's
+    # wording matched by name (see contract_matching.py) and search was
+    # narrowed to.
+    narrowed_to_contract_count: int
+    top_candidates: list[RankedCandidate]
+
+
+class AnswerDiagnostics(BaseModel):
+    """The full "why did the pipeline answer this way" trail for one
+    turn — persisted on the assistant ChatMessage (and streamed in the
+    SSE `done` event) only when confidence="insufficient_information", so
+    a user who gets declined can see what was actually retrieved and
+    which guardrail or threshold turned it away, rather than just the
+    fixed apology string."""
+
+    decision_reason: DeclineReason | Literal["answered"]
+    relevance_threshold: float
+    attempts: list[RetrievalAttempt]
 
 
 class ChatSessionCreate(BaseModel):
@@ -67,6 +127,9 @@ class ChatMessageSummary(BaseModel):
     citations: list[ChatCitation] | None
     feedback: ChatFeedback
     created_at: datetime
+    # Only ever populated for an assistant message with
+    # confidence="insufficient_information" — see AnswerDiagnostics.
+    retrieval_diagnostics: AnswerDiagnostics | None = None
 
     model_config = {"from_attributes": True}
 

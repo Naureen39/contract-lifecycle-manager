@@ -71,6 +71,7 @@ async def test_well_grounded_answer_produces_real_citations(
     assert answer.citations[0].ref_number == 1
     assert answer.citations[0].contract_title == "Acme NDA"
     assert answer.citations[0].contract_id == references[0].contract_id
+    assert answer.decline_reason is None
     assert tokens == 50
 
 
@@ -94,6 +95,7 @@ async def test_model_reported_insufficient_information_passes_through(
 
     assert answer.confidence == "insufficient_information"
     assert answer.citations == []
+    assert answer.decline_reason == "llm_self_declined"
 
 
 @pytest.mark.asyncio
@@ -119,6 +121,7 @@ async def test_uncited_substantive_claim_forces_insufficient_information(
 
     assert answer.confidence == "insufficient_information"
     assert answer.citations == []
+    assert answer.decline_reason == "uncited_claim"
 
 
 @pytest.mark.asyncio
@@ -140,6 +143,7 @@ async def test_invented_reference_number_forces_insufficient_information(
     )
 
     assert answer.confidence == "insufficient_information"
+    assert answer.decline_reason == "uncited_claim"  # an invalid ref number counts as uncited
 
 
 @pytest.mark.asyncio
@@ -170,6 +174,7 @@ async def test_unfaithful_citation_forces_insufficient_information(
     )
 
     assert answer.confidence == "insufficient_information"
+    assert answer.decline_reason == "failed_faithfulness_check"
     assert stub.calls == 2
 
 
@@ -192,6 +197,7 @@ async def test_legal_advice_framing_forces_insufficient_information(
     )
 
     assert answer.confidence == "insufficient_information"
+    assert answer.decline_reason == "legal_advice_framing"
 
 
 @pytest.mark.asyncio
@@ -228,6 +234,7 @@ async def test_no_provider_available_falls_back_to_insufficient_information(
     )
 
     assert answer.confidence == "insufficient_information"
+    assert answer.decline_reason == "llm_unavailable"
     assert tokens == 0
 
 
@@ -241,4 +248,7 @@ async def test_no_reference_items_skips_llm_call_entirely(db_session: AsyncSessi
     )
 
     assert answer.confidence == "insufficient_information"
+    # generate_chat_answer has no visibility into *why* retrieval came back
+    # empty (nothing found vs. below threshold) — pipeline.py fills this in.
+    assert answer.decline_reason is None
     assert tokens == 0

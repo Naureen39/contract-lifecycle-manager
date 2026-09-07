@@ -4,6 +4,7 @@ import type { components } from '@/lib/api-schema'
 type ChatCitation = components['schemas']['ChatCitation']
 type ChatConfidence = components['schemas']['ChatConfidence']
 type ChatIntent = components['schemas']['ChatIntent']
+type AnswerDiagnostics = components['schemas']['AnswerDiagnostics']
 
 export interface ChatStreamDone {
   type: 'done'
@@ -11,6 +12,7 @@ export interface ChatStreamDone {
   citations: ChatCitation[]
   confidence: ChatConfidence
   intent: ChatIntent
+  retrieval_diagnostics: AnswerDiagnostics | null
 }
 
 interface ChatStreamDelta {

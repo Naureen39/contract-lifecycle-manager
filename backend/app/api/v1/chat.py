@@ -154,6 +154,7 @@ async def _stream_answer(
     citations: list[dict[str, object]],
     intent: ChatIntent,
     confidence: str,
+    diagnostics: dict[str, object] | None,
 ) -> AsyncIterator[str]:
     for i in range(0, len(answer_text), _STREAM_CHUNK_SIZE):
         yield _sse_event({"type": "delta", "text": answer_text[i : i + _STREAM_CHUNK_SIZE]})
@@ -164,6 +165,7 @@ async def _stream_answer(
             "citations": citations,
             "confidence": confidence,
             "intent": intent.value,
+            "retrieval_diagnostics": diagnostics,
         }
     )
 
@@ -199,6 +201,15 @@ async def send_message(
     )
 
     citations_json = [c.model_dump(mode="json") for c in result.answer.citations]
+    # Only persisted (and streamed) when the turn actually declined to
+    # answer — a real cited answer has nothing to explain, and
+    # out_of_scope/calendar_query turns never retrieve at all.
+    diagnostics_json = (
+        result.diagnostics.model_dump(mode="json")
+        if result.diagnostics is not None
+        and result.answer.confidence == "insufficient_information"
+        else None
+    )
     assistant_message = ChatMessage(
         session_id=chat_session.id,
         role=ChatRole.ASSISTANT,
@@ -206,6 +217,7 @@ async def send_message(
         confidence=ChatConfidence(result.answer.confidence),
         intent=result.intent,
         citations=citations_json,
+        retrieval_diagnostics=diagnostics_json,
         langfuse_trace_id=result.langfuse_trace_id,
     )
     db.add(assistant_message)
@@ -221,6 +233,7 @@ async def send_message(
             citations_json,
             result.intent,
             result.answer.confidence,
+            diagnostics_json,
         ),
         media_type="text/event-stream",
     )

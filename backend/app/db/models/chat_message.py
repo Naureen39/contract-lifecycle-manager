@@ -33,6 +33,13 @@ class ChatMessage(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # Serialized list[ChatCitation] (schemas/chat.py) — null until an
     # assistant message has passed the faithfulness guardrail.
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # Serialized AnswerDiagnostics (schemas/chat.py) — populated only when
+    # confidence=INSUFFICIENT_INFORMATION, so a declined answer can be
+    # explained (what was retrieved, at what scores, and which stage
+    # turned it away) instead of just showing the fixed apology string.
+    # Null for a real answer and for out_of_scope/calendar_query turns,
+    # which never retrieve.
+    retrieval_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     # Plan §9 lists this as a nullable enum including "none" as a value;
     # collapsed to a single non-nullable column with NONE as the default

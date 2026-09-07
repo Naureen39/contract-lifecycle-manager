@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
 import { streamChatMessage } from '@/lib/chat-stream'
+import type { ChatStreamDone } from '@/lib/chat-stream'
 import { cn } from '@/lib/utils'
 import type { components } from '@/lib/api-schema'
 
@@ -120,6 +121,13 @@ function SessionSidebar({ activeSessionId }: { activeSessionId: string | undefin
 interface StreamingState {
   userContent: string
   assistantText: string
+  // Populated once the SSE 'done' event arrives — while null, only raw
+  // deltas have landed and the bubble below shows plain streaming text.
+  // Once set, citations/confidence/diagnostics are already known (the
+  // pipeline validates everything server-side before streaming a single
+  // byte — see chat.py's module docstring) and are rendered immediately,
+  // rather than waiting for the post-send session refetch to reveal them.
+  done: ChatStreamDone | null
 }
 
 function ChatThread({ sessionId }: { sessionId: string }) {
@@ -150,18 +158,22 @@ function ChatThread({ sessionId }: { sessionId: string }) {
     if (!content || streaming) return
 
     setDraft('')
-    setStreaming({ userContent: content, assistantText: '' })
+    setStreaming({ userContent: content, assistantText: '', done: null })
     try {
-      await streamChatMessage(sessionId, content, {
+      const done = await streamChatMessage(sessionId, content, {
         onDelta: (text) =>
           setStreaming((prev) => (prev ? { ...prev, assistantText: prev.assistantText + text } : prev)),
       })
+      // Citations/confidence/diagnostics are already known here — render
+      // them right away rather than leaving the bubble bare until the
+      // refetch below resolves.
+      setStreaming((prev) => (prev ? { ...prev, done } : prev))
+      await queryClient.invalidateQueries({ queryKey: ['chat-session', sessionId] })
+      await queryClient.invalidateQueries({ queryKey: ['chat-sessions'] })
     } catch {
       toast.error('That message failed to send. Please try again.')
     } finally {
       setStreaming(null)
-      await queryClient.invalidateQueries({ queryKey: ['chat-session', sessionId] })
-      await queryClient.invalidateQueries({ queryKey: ['chat-sessions'] })
     }
   }
 
@@ -214,14 +226,32 @@ function ChatThread({ sessionId }: { sessionId: string }) {
                 sessionId={sessionId}
                 onCitationClick={setActiveCitation}
               />
-              <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-2xl rounded-bl-sm border bg-card px-4 py-3">
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                    {streaming.assistantText}
-                    <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-muted-foreground/50 align-middle" />
-                  </p>
+              {streaming.done ? (
+                <ChatMessageBubble
+                  message={{
+                    id: streaming.done.message_id,
+                    role: 'assistant',
+                    content: streaming.assistantText,
+                    confidence: streaming.done.confidence,
+                    intent: streaming.done.intent,
+                    citations: streaming.done.citations,
+                    retrieval_diagnostics: streaming.done.retrieval_diagnostics,
+                    feedback: 'none',
+                    created_at: new Date().toISOString(),
+                  }}
+                  sessionId={sessionId}
+                  onCitationClick={setActiveCitation}
+                />
+              ) : (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm border bg-card px-4 py-3">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {streaming.assistantText}
+                      <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-muted-foreground/50 align-middle" />
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : null}
         </div>

@@ -3,6 +3,7 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { ConfidenceBadge } from '@/components/chat/ConfidenceBadge'
 import { MessageText } from '@/components/chat/MessageText'
+import { RetrievalDiagnosticsPanel } from '@/components/chat/RetrievalDiagnosticsPanel'
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
 import { CHAT_INTENT_LABEL } from '@/lib/status'
@@ -83,6 +84,9 @@ export function ChatMessageBubble({
             </Button>
           </div>
         </div>
+        {message.confidence === 'insufficient_information' && message.retrieval_diagnostics ? (
+          <RetrievalDiagnosticsPanel diagnostics={message.retrieval_diagnostics} />
+        ) : null}
       </div>
     </div>
   )
