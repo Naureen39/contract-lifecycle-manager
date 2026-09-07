@@ -25,3 +25,9 @@ docs/CHATBOT_INTEGRATION_PLAN.md
 # Offline RAG evaluation harness output (scripts/run_rag_evaluation.py) —
 # a local run artifact, not source.
 .rag_eval_results.json
+
+# The project's own documented backend workflow installs from
+# requirements.txt/requirements-dev.txt via plain pip (see README.md), not
+# uv — this lockfile is only ever a side effect of running tests through
+# `uv run` locally and isn't part of that workflow.
+backend/uv.lock
