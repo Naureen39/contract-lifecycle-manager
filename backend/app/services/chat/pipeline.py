@@ -16,6 +16,7 @@ from app.db.enums import ChatIntent, ChatRole, ChatSessionScope
 from app.schemas.chat import ChatAnswer
 from app.services import observability
 from app.services.chat import calendar_query, guardrails
+from app.services.chat.contract_matching import resolve_mentioned_contract_ids
 from app.services.chat.generation import (
     ReferenceItem,
     generate_chat_answer,
@@ -132,13 +133,40 @@ async def run_chat_turn(
                 )
 
         else:
-            chunk_filters = ChunkFilters(org_id=org_id, contract_id=scope_contract_id)
-            reference_items = await _retrieve_reference_items(
-                session,
-                question=question,
-                filters=chunk_filters,
-                include_reference_corpus=intent == ChatIntent.CLAUSE_BENCHMARK,
-            )
+            include_reference_corpus = intent == ChatIntent.CLAUSE_BENCHMARK
+            reference_items = []
+
+            # Org-wide sessions only: if the question names a contract by
+            # title (plan §3.4), try a search narrowed to just that
+            # contract (or contracts — titles aren't guaranteed unique)
+            # first. Never a hard restriction on its own — an empty
+            # narrowed result falls through to the unrestricted search
+            # below, so a spurious or overly-broad title match can only
+            # ever degrade to today's unscoped behavior, never produce a
+            # worse or wrong-contract answer. A contract-scoped session
+            # already has its own certain scope and skips this.
+            if scope == ChatSessionScope.ORGANIZATION:
+                with observability.trace_span("contract_name_matching"):
+                    mentioned_ids = await resolve_mentioned_contract_ids(
+                        session, org_id=org_id, query_text=question
+                    )
+                if mentioned_ids:
+                    narrowed_filters = ChunkFilters(org_id=org_id, contract_ids=mentioned_ids)
+                    reference_items = await _retrieve_reference_items(
+                        session,
+                        question=question,
+                        filters=narrowed_filters,
+                        include_reference_corpus=include_reference_corpus,
+                    )
+
+            if not reference_items:
+                chunk_filters = ChunkFilters(org_id=org_id, contract_id=scope_contract_id)
+                reference_items = await _retrieve_reference_items(
+                    session,
+                    question=question,
+                    filters=chunk_filters,
+                    include_reference_corpus=include_reference_corpus,
+                )
             with observability.trace_span(
                 "generation", as_type="generation", reference_count=len(reference_items)
             ):

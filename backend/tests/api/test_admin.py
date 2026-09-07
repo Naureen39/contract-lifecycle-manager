@@ -60,6 +60,11 @@ async def test_llm_usage_reflects_recorded_usage(
 ) -> None:
     org, admin = await _make_org_and_admin(db_session, org_name="Acme", email="usage2@example.com")
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
+    # Explicitly unconfigured, not just ambient: this assertion is
+    # specifically testing "no key configured -> no headroom" behavior for
+    # Gemini, which must hold regardless of whatever real GEMINI_API_KEY
+    # this test suite happens to run against.
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     await quota.record_usage(db_session, LLMProviderName.GROQ, tokens=500)
 
     token = create_access_token(user_id=admin.id, org_id=org.id, role=UserRole.ADMIN)

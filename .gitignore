@@ -31,3 +31,7 @@ docs/CHATBOT_INTEGRATION_PLAN.md
 # uv — this lockfile is only ever a side effect of running tests through
 # `uv run` locally and isn't part of that workflow.
 backend/uv.lock
+
+# stdout/stderr redirect target for locally-run dev servers — not source.
+*_dev.log
+*_dev[0-9].log

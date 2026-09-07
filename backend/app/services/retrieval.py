@@ -64,6 +64,14 @@ class ChunkFilters:
 
     org_id: uuid.UUID
     contract_id: uuid.UUID | None = None
+    # A narrowed-but-not-certain set of candidate contracts (plan §3.4 —
+    # e.g. the query named a contract by title) — distinct from
+    # `contract_id`, which is a hard, certain restriction from the chat
+    # session's own scope. See services/chat/contract_matching.py; the
+    # caller is responsible for the "try narrowed, fall back to
+    # unrestricted if nothing comes back" pattern that keeps a bad match
+    # from ever making retrieval worse than not narrowing at all.
+    contract_ids: list[uuid.UUID] | None = None
     contract_type: ContractType | None = None
     counterparty_name: str | None = None
     obligation_category: ObligationCategory | None = None
@@ -89,6 +97,8 @@ def _filtered_chunk_query(filters: ChunkFilters) -> Select[tuple[uuid.UUID]]:
     )
     if filters.contract_id is not None:
         query = query.where(ContractChunk.contract_id == filters.contract_id)
+    if filters.contract_ids is not None:
+        query = query.where(ContractChunk.contract_id.in_(filters.contract_ids))
     if filters.contract_type is not None:
         query = query.where(Contract.contract_type == filters.contract_type)
     if filters.counterparty_name is not None:

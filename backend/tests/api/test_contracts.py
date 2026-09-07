@@ -112,8 +112,15 @@ async def test_upload_requires_editor_role(client: AsyncClient, db_session: Asyn
 
 @pytest.mark.asyncio
 async def test_upload_creates_contract_with_chunks_and_prefilter_hits(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # This test is about chunk/prefilter behavior on upload, not extraction
+    # outcomes — forcing "no provider available" keeps the resulting
+    # contract status ("processing") deterministic regardless of whether
+    # real GROQ_API_KEY/GEMINI_API_KEY happen to be configured in whichever
+    # .env this test suite runs against.
+    monkeypatch.setattr(get_settings(), "groq_api_key", None)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     token = await _register_and_login(client, org_name="Acme", email="admin2@example.com")
 
     response = await client.post(

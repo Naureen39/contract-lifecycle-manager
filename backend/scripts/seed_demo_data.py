@@ -46,6 +46,8 @@ from app.db.enums import (
 from app.db.models import (
     Alert,
     AuditLog,
+    ChatMessage,
+    ChatSession,
     Contract,
     ContractChunk,
     ExtractionJob,
@@ -353,6 +355,20 @@ async def wipe_existing_demo_org(session: AsyncSession, org_id: uuid.UUID) -> No
         await session.execute(select(User.id).where(User.org_id == org_id))
     ).scalars().all()
 
+    # Chat sessions carry this org's org_id directly (org-wide sessions
+    # have no contract_id at all) — found via live-testing the chatbot
+    # against a demo org and then re-seeding, which this wipe function
+    # predates: it didn't know about chat_sessions/chat_messages and
+    # failed with a FK violation the moment a real chat session existed.
+    # chat_messages FKs to chat_sessions.id, so it must go first — this is
+    # a raw bulk DELETE, not ORM object deletion, so ChatSession.messages'
+    # cascade="all, delete-orphan" relationship config never fires here.
+    session_ids = (
+        await session.execute(select(ChatSession.id).where(ChatSession.org_id == org_id))
+    ).scalars().all()
+    if session_ids:
+        await session.execute(delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
+        await session.execute(delete(ChatSession).where(ChatSession.id.in_(session_ids)))
     if obligation_ids:
         await session.execute(delete(Alert).where(Alert.obligation_id.in_(obligation_ids)))
         await session.execute(delete(Obligation).where(Obligation.id.in_(obligation_ids)))
