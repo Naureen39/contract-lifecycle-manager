@@ -1,6 +1,6 @@
 """Phase 5 orchestration tests. These never call a real LLM API — every
 provider call goes through `_StubProvider`, monkeypatched in for
-`extraction._build_provider`, per docs/CONTRACT_CLM_BUILD_PLAN.md's rule
+`orchestration.build_provider`, per docs/CONTRACT_CLM_BUILD_PLAN.md's rule
 that CI must never touch a real provider. See app/services/llm/extraction.py.
 """
 
@@ -27,6 +27,7 @@ from app.db.models import (
     User,
 )
 from app.services.llm import extraction as extraction_module
+from app.services.llm import orchestration as orchestration_module
 from app.services.llm.base import LLMCompletionResult, LLMProvider, LLMProviderError
 
 EMBEDDING_DIM = 768
@@ -159,8 +160,8 @@ async def test_valid_response_persists_obligations(
     contract, job, _chunk = await _setup(db_session)
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
     monkeypatch.setattr(
-        extraction_module,
-        "_build_provider",
+        orchestration_module,
+        "build_provider",
         lambda name: _StubProvider(name, [_VALID_RESPONSE]),
     )
 
@@ -190,7 +191,7 @@ async def test_malformed_json_triggers_one_corrective_retry(
     contract, job, _chunk = await _setup(db_session)
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
     stub = _StubProvider(LLMProviderName.GROQ, [_MALFORMED_RESPONSE, _VALID_RESPONSE])
-    monkeypatch.setattr(extraction_module, "_build_provider", lambda name: stub)
+    monkeypatch.setattr(orchestration_module, "build_provider", lambda name: stub)
 
     await extraction_module.extract_contract_obligations(
         db_session, contract=contract, extraction_job=job
@@ -214,7 +215,7 @@ async def test_falls_back_to_second_provider_on_failure(
             return _StubProvider(name, [LLMProviderError("Groq is down")])
         return _StubProvider(name, [_VALID_RESPONSE])
 
-    monkeypatch.setattr(extraction_module, "_build_provider", build)
+    monkeypatch.setattr(orchestration_module, "build_provider", build)
 
     await extraction_module.extract_contract_obligations(
         db_session, contract=contract, extraction_job=job

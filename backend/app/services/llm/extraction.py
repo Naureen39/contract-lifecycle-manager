@@ -6,6 +6,10 @@ computing calendar math in plain Python, never delegating it to the LLM.
 If no provider currently has quota headroom, the extraction_job is left
 QUEUED rather than failed, so a future retry sweep can pick it back up.
 See docs/CONTRACT_CLM_BUILD_PLAN.md §3, §7, and §12 Phase 5.
+
+The schema-constrained-call-with-retry-and-fallback machinery itself lives
+in services/llm/orchestration.py, shared with the chatbot's generation step
+(docs/CHATBOT_INTEGRATION_PLAN.md §6.2) rather than duplicated here.
 """
 
 import hashlib
@@ -17,89 +21,18 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.db.enums import (
-    ContractStatus,
-    ExtractionJobStatus,
-    LLMProviderName,
-    ObligationCategory,
-)
+from app.db.enums import ContractStatus, ExtractionJobStatus, ObligationCategory
 from app.db.models import ClausePrecedentCache, Contract, ContractChunk, ExtractionJob, Obligation
 from app.schemas.extraction import ContractExtractionResult, ExtractedObligation
 from app.services.dedup import find_cached_extraction
-from app.services.llm import quota
-from app.services.llm.base import LLMProvider, LLMProviderError
-from app.services.llm.gemini_provider import GeminiProvider
-from app.services.llm.groq_provider import GroqProvider
-from app.services.llm.prompt import (
-    SYSTEM_PROMPT,
-    build_corrective_prompt,
-    build_user_prompt,
-    chunk_label,
-)
+from app.services.llm.orchestration import call_llm_with_fallback
+from app.services.llm.prompt import SYSTEM_PROMPT, build_user_prompt, chunk_label
 from app.services.obligation_dates import compute_alert_date, initial_obligation_status
 
 logger = logging.getLogger(__name__)
 
 _HIGH_STAKES_CATEGORIES = (ObligationCategory.RENEWAL, ObligationCategory.TERMINATION_NOTICE)
 _CONFIDENCE_REVIEW_THRESHOLD = 0.7
-
-
-def _build_provider(name: LLMProviderName) -> LLMProvider:
-    settings = get_settings()
-    if name == LLMProviderName.GROQ:
-        assert settings.groq_api_key is not None, "select_provider already checked this"
-        return GroqProvider(api_key=settings.groq_api_key)
-    assert settings.gemini_api_key is not None, "select_provider already checked this"
-    return GeminiProvider(api_key=settings.gemini_api_key)
-
-
-async def _call_with_validation_retry(
-    provider: LLMProvider, *, system_prompt: str, user_prompt: str
-) -> tuple[ContractExtractionResult, int]:
-    """One provider call, with a single corrective retry on schema
-    validation failure (§7). Returns (parsed_result, total_tokens_used).
-    A second validation failure propagates to the caller, which falls
-    back to the other provider rather than retrying indefinitely."""
-    completion = await provider.complete_json(system_prompt=system_prompt, user_prompt=user_prompt)
-    tokens_used = completion.tokens_used
-
-    try:
-        return ContractExtractionResult.model_validate_json(completion.text), tokens_used
-    except ValidationError as exc:
-        logger.info("%s returned invalid JSON, retrying once with a correction.", provider.name)
-        corrective_prompt = build_corrective_prompt(
-            previous_response=completion.text, validation_error=str(exc)
-        )
-        retry_completion = await provider.complete_json(
-            system_prompt=system_prompt, user_prompt=corrective_prompt
-        )
-        tokens_used += retry_completion.tokens_used
-        return ContractExtractionResult.model_validate_json(retry_completion.text), tokens_used
-
-
-async def _call_llm_with_fallback(
-    session: AsyncSession, *, system_prompt: str, user_prompt: str
-) -> tuple[LLMProviderName, ContractExtractionResult, int] | None:
-    """Tries providers in priority order, skipping any with no headroom,
-    falling back to the next on any failure. Returns None if no provider
-    currently has both a configured key and headroom — never raises."""
-    for provider_name in quota.PROVIDER_ORDER:
-        if not await quota.has_headroom(session, provider_name):
-            continue
-        provider = _build_provider(provider_name)
-        try:
-            result, tokens = await _call_with_validation_retry(
-                provider, system_prompt=system_prompt, user_prompt=user_prompt
-            )
-        except (LLMProviderError, ValidationError) as exc:
-            logger.warning(
-                "%s extraction call failed, trying next provider: %s", provider_name, exc
-            )
-            continue
-        await quota.record_usage(session, provider_name, tokens=tokens)
-        return provider_name, result, tokens
-    return None
 
 
 def _is_human_reviewed(category: ObligationCategory, confidence: float) -> bool:
@@ -169,8 +102,11 @@ async def _run_llm_batch(
     failed — the caller must treat None as "still queued", not a hard
     failure of the whole contract."""
     user_prompt = build_user_prompt(chunks)
-    outcome = await _call_llm_with_fallback(
-        session, system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt
+    outcome = await call_llm_with_fallback(
+        session,
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        response_model=ContractExtractionResult,
     )
     if outcome is None:
         logger.info("No LLM provider had headroom for contract %s; leaving it queued.", contract.id)

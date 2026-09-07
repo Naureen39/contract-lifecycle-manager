@@ -73,6 +73,20 @@ jobs:
       - name: Test (pytest)
         run: pytest -q
 
+      # Currently a no-op here every run: data/ (the CUAD dataset) is
+      # git-ignored and never checked out in CI, and no GROQ_API_KEY/
+      # GEMINI_API_KEY secret is provisioned (those are the developer's
+      # own account, not something to hand to a build pipeline) — the
+      # script detects both and skips cleanly rather than failing. Real
+      # CI-gated regression checking (plan §7.1/§12.7) needs a maintainer
+      # to provision both as repo/environment secrets first; until then
+      # this documents the intended gate and runs it for real wherever
+      # both are actually available (e.g. a developer's own machine).
+      # See docs/CHATBOT_EVALUATION.md.
+      - name: RAG evaluation (docs/CHATBOT_EVALUATION.md)
+        run: python -m scripts.run_rag_evaluation
+        continue-on-error: true
+
       - name: Dependency vulnerability scan (pip-audit)
         run: pip install pip-audit && pip-audit -r requirements.txt
         continue-on-error: true

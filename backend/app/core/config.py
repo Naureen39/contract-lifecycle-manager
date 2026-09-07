@@ -87,6 +87,41 @@ class Settings(BaseSettings):
     # app/worker.py and services/ingestion.py's retry_queued_extractions.
     extraction_retry_interval_minutes: int = 30
 
+    # --- Chatbot (docs/CHATBOT_INTEGRATION_PLAN.md, Phase 12) ---
+    # Local cross-encoder for reranking the RRF-fused retrieval candidates
+    # (plan §3.5) — CPU-only, no API cost, same "loaded once" pattern as
+    # embedding_model_name. See services/reranker.py.
+    reranker_model_name: str = "BAAI/bge-reranker-base"
+    # Minimum embedding-similarity for the input scope classifier (plan
+    # §6.1) to accept a query as in-scope, and minimum reranker relevance
+    # (post-sigmoid, [0,1]) for a retrieved chunk to be usable as grounding
+    # evidence at all — below either, the pipeline answers
+    # insufficient_information rather than guess. See services/chat/.
+    chat_scope_classifier_threshold: float = 0.5
+    chat_min_relevance_threshold: float = 0.3
+    # Minimum lexical/embedding overlap between a cited sentence and its
+    # referenced chunk for the cheap local faithfulness check (plan §6.2)
+    # to accept it without escalating to an LLM-judge call.
+    chat_faithfulness_overlap_threshold: float = 0.6
+    # Cost/latency guardrails (plan §6.3): how much prior conversation is
+    # carried into each generation prompt, and how many reranked chunks
+    # are ever included as context.
+    chat_max_history_messages: int = 10
+    chat_max_context_chunks: int = 8
+    # Per-user chat message rate limit, in slowapi's own "N/period" syntax
+    # — same rate-limiting middleware as the auth endpoints (plan §6.3).
+    chat_rate_limit: str = "20/minute"
+
+    # --- Observability: self-hosted Langfuse (plan §8) ---
+    # All three unset (the default) means tracing is a no-op — the chat
+    # pipeline must work identically with or without Langfuse running; see
+    # services/observability.py. Never a SaaS/cloud host by design — this
+    # points at the self-hosted instance started via
+    # infra/docker-compose.langfuse.yml.
+    langfuse_host: str | None = None
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+
     @model_validator(mode="after")
     def _forbid_insecure_defaults_in_production(self) -> "Settings":
         """Fail fast at startup rather than silently running production

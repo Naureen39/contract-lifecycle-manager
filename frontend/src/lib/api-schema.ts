@@ -147,6 +147,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/extraction/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Extraction Retry
+         * @description Re-attempts every extraction_job still QUEUED — left that way when no
+         *     LLM provider had quota headroom at upload time. Runs on the worker's own
+         *     schedule too (see worker.py); this endpoint exists for the same
+         *     on-demand testing/demoing reason as /admin/alerts/scan. Scans the whole
+         *     platform, not just this admin's org, matching that endpoint's scope.
+         */
+        post: operations["trigger_extraction_retry_api_v1_admin_extraction_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/llm-usage": {
         parameters: {
             query?: never;
@@ -388,6 +412,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["list_sessions_api_v1_chat_sessions_get"];
+        put?: never;
+        /** Create Session */
+        post: operations["create_session_api_v1_chat_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session */
+        get: operations["get_session_api_v1_chat_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Session */
+        delete: operations["delete_session_api_v1_chat_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Message */
+        post: operations["send_message_api_v1_chat_sessions__session_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Feedback */
+        patch: operations["update_feedback_api_v1_chat_messages__message_id__feedback_patch"];
+        trace?: never;
+    };
+    "/api/v1/chat/admin/evaluation-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evaluation Summary */
+        get: operations["get_evaluation_summary_api_v1_chat_admin_evaluation_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -531,6 +642,147 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * ChatCitation
+         * @description One numbered reference in an assistant answer, per plan §4 —
+         *     `ref_number` matches an inline `[n]` marker in `answer_text`.
+         *
+         *     `source_chunk_id`/`contract_id` are null for a clause-benchmark
+         *     citation into the CUAD reference corpus (plan §3.2): that material
+         *     isn't one of the requesting org's own contracts, so there's no
+         *     document-viewer page for the frontend's "View in document" action to
+         *     open — the citation is still real and shown, just not clickable.
+         *     `is_reference_corpus` is what the frontend uses to tell the two apart
+         *     without inferring it from a null check.
+         */
+        ChatCitation: {
+            /** Ref Number */
+            ref_number: number;
+            /** Source Chunk Id */
+            source_chunk_id: string | null;
+            /** Contract Id */
+            contract_id: string | null;
+            /** Contract Title */
+            contract_title: string;
+            /** Snippet */
+            snippet: string;
+            /**
+             * Is Reference Corpus
+             * @default false
+             */
+            is_reference_corpus: boolean;
+        };
+        /**
+         * ChatConfidence
+         * @enum {string}
+         */
+        ChatConfidence: "high" | "medium" | "low" | "insufficient_information";
+        /**
+         * ChatFeedback
+         * @enum {string}
+         */
+        ChatFeedback: "none" | "up" | "down";
+        /** ChatFeedbackUpdate */
+        ChatFeedbackUpdate: {
+            feedback: components["schemas"]["ChatFeedback"];
+        };
+        /**
+         * ChatIntent
+         * @enum {string}
+         */
+        ChatIntent: "domain_question" | "clause_benchmark" | "calendar_query" | "out_of_scope";
+        /** ChatMessageCreate */
+        ChatMessageCreate: {
+            /** Content */
+            content: string;
+        };
+        /** ChatMessageSummary */
+        ChatMessageSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            role: components["schemas"]["ChatRole"];
+            /** Content */
+            content: string;
+            confidence: components["schemas"]["ChatConfidence"] | null;
+            intent: components["schemas"]["ChatIntent"] | null;
+            /** Citations */
+            citations: components["schemas"]["ChatCitation"][] | null;
+            feedback: components["schemas"]["ChatFeedback"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ChatRole
+         * @enum {string}
+         */
+        ChatRole: "user" | "assistant" | "system";
+        /** ChatSessionCreate */
+        ChatSessionCreate: {
+            scope: components["schemas"]["ChatSessionScope"];
+            /** Contract Id */
+            contract_id?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** ChatSessionDetail */
+        ChatSessionDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            scope: components["schemas"]["ChatSessionScope"];
+            /** Contract Id */
+            contract_id: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Messages */
+            messages?: components["schemas"]["ChatMessageSummary"][];
+        };
+        /**
+         * ChatSessionScope
+         * @enum {string}
+         */
+        ChatSessionScope: "organization" | "contract";
+        /** ChatSessionSummary */
+        ChatSessionSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            scope: components["schemas"]["ChatSessionScope"];
+            /** Contract Id */
+            contract_id: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** ContractDetail */
         ContractDetail: {
             /**
@@ -635,6 +887,34 @@ export interface components {
             };
         };
         /**
+         * EvaluationSummary
+         * @description Plan §7's admin quality view: online signal (real user feedback,
+         *     always available) plus offline signal (the last CI-gated RAGAS-style
+         *     run, when scripts/run_rag_evaluation.py has been run at least once —
+         *     see docs/CHATBOT_EVALUATION.md). `offline_*` fields are null rather
+         *     than fabricated when no evaluation run has ever been recorded.
+         */
+        EvaluationSummary: {
+            /** Total Assistant Messages */
+            total_assistant_messages: number;
+            /** Feedback Up Count */
+            feedback_up_count: number;
+            /** Feedback Down Count */
+            feedback_down_count: number;
+            /** Insufficient Information Rate */
+            insufficient_information_rate: number;
+            /** Offline Eval Run At */
+            offline_eval_run_at: string | null;
+            /** Offline Faithfulness */
+            offline_faithfulness: number | null;
+            /** Offline Answer Relevancy */
+            offline_answer_relevancy: number | null;
+            /** Offline Context Precision */
+            offline_context_precision: number | null;
+            /** Offline Context Recall */
+            offline_context_recall: number | null;
+        };
+        /**
          * ExtractionJobStatus
          * @enum {string}
          */
@@ -656,6 +936,15 @@ export interface components {
             finished_at: string | null;
             /** Error Message */
             error_message: string | null;
+        };
+        /** ExtractionRetryResponse */
+        ExtractionRetryResponse: {
+            /** Jobs Retried */
+            jobs_retried: number;
+            /** Jobs Succeeded */
+            jobs_succeeded: number;
+            /** Jobs Still Queued */
+            jobs_still_queued: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1150,6 +1439,26 @@ export interface operations {
             };
         };
     };
+    trigger_extraction_retry_api_v1_admin_extraction_retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionRetryResponse"];
+                };
+            };
+        };
+    };
     get_llm_usage_api_v1_admin_llm_usage_get: {
         parameters: {
             query?: never;
@@ -1639,6 +1948,209 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sessions_api_v1_chat_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionSummary"][];
+                };
+            };
+        };
+    };
+    create_session_api_v1_chat_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_api_v1_chat_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_api_v1_chat_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_message_api_v1_chat_sessions__session_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatMessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_feedback_api_v1_chat_messages__message_id__feedback_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatFeedbackUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evaluation_summary_api_v1_chat_admin_evaluation_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationSummary"];
                 };
             };
         };

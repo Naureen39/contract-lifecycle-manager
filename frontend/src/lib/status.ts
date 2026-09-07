@@ -4,6 +4,8 @@ type ContractStatus = components['schemas']['ContractStatus']
 type ObligationStatus = components['schemas']['ObligationStatus']
 type AlertStatus = components['schemas']['AlertStatus']
 type ExtractionJobStatus = components['schemas']['ExtractionJobStatus']
+type ChatConfidence = components['schemas']['ChatConfidence']
+type ChatIntent = components['schemas']['ChatIntent']
 
 export type BadgeTone = 'neutral' | 'info' | 'warning' | 'danger' | 'success'
 
@@ -67,6 +69,27 @@ export const EXTRACTION_JOB_STATUS_TONE: Record<ExtractionJobStatus, BadgeTone> 
   running: 'info',
   succeeded: 'success',
   failed: 'danger',
+}
+
+export const CHAT_CONFIDENCE_LABEL: Record<ChatConfidence, string> = {
+  high: 'High confidence',
+  medium: 'Medium confidence',
+  low: 'Low confidence',
+  insufficient_information: 'Not enough information',
+}
+
+export const CHAT_CONFIDENCE_TONE: Record<ChatConfidence, BadgeTone> = {
+  high: 'success',
+  medium: 'info',
+  low: 'warning',
+  insufficient_information: 'neutral',
+}
+
+export const CHAT_INTENT_LABEL: Record<ChatIntent, string> = {
+  domain_question: 'Contract Q&A',
+  clause_benchmark: 'Clause benchmark',
+  calendar_query: 'Compliance calendar',
+  out_of_scope: 'Out of scope',
 }
 
 export function categoryLabel(category: string): string {

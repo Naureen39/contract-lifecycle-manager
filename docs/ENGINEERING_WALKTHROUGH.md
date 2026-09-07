@@ -869,10 +869,131 @@ while probing RBAC boundaries tripped `/auth/login`'s `5/minute` rate
 limit for real — the control working exactly as designed against a live
 attacker-shaped request pattern, not just passing in isolation under test.
 
+## Phase 12 — Conversational Chatbot
+
+The RAG chatbot from `docs/CHATBOT_INTEGRATION_PLAN.md` — grounded Q&A over
+an org's own contracts, clause benchmarking against the CUAD reference
+corpus, and natural-language compliance-calendar queries, with citations
+verified before they ever reach a user rather than trusted from the LLM.
+
+**Two deliberate deviations from the plan, both decided before writing any
+code, both for the same reason:** avoiding a dependency-tree inconsistency
+this codebase has spent eleven phases *not* having.
+
+- **Langfuse is real self-hosted infrastructure, not folded into the
+  default stack.** The plan's own text undersells what "self-hosted"
+  costs here — Langfuse v4 hard-requires Postgres + ClickHouse + Redis +
+  an S3-compatible store (six containers, ~4 vCPU/8-16 GB RAM to start),
+  confirmed against Langfuse's actual current `docker-compose.yml`
+  (`infra/docker-compose.langfuse.yml` is an adapted copy of it, not a
+  from-memory reconstruction — service/volume names changed to avoid
+  colliding with the existing stack, its own dedicated Postgres rather
+  than reusing oblitrack's, `LANGFUSE_INIT_*` wired so a first
+  `docker compose up` produces working API keys with no manual sign-up).
+  It's a separate opt-in overlay file specifically so a machine that
+  can't spare 8+ GB of RAM can still run the rest of the app.
+- **The evaluation harness implements RAGAS's four metrics directly, not
+  the `ragas` library.** `ragas` drags in `langchain` + `openai` +
+  `tiktoken` as dead weight even once its judge/embeddings are overridden
+  to Groq/Gemini and the local embedding model — a real inconsistency
+  with a codebase that has zero LangChain/OpenAI anywhere else. Same
+  methodology (context precision/recall, faithfulness, answer relevancy —
+  see `docs/CHATBOT_EVALUATION.md`), computed against this project's own
+  `LLMProvider` abstraction instead.
+
+**Retrieval reuses, rather than duplicates, existing infrastructure.**
+`services/retrieval.py`'s hybrid search (dense pgvector + lexical
+`tsvector`/`ts_rank_cd`, fused with Reciprocal Rank Fusion) is the same
+`BAAI/bge-base-en-v1.5` embedding model and `contract_chunks` table
+Precedent Search already used — `search_vector` is a new *generated*
+column (Postgres computes it from `raw_text` on write; no application
+code keeps it in sync). A local `BAAI/bge-reranker-base` cross-encoder
+reorders the fused candidates before generation, the same "second free
+local model" pattern the token-minimization funnel already established.
+The schema-constrained-call-with-retry-and-fallback machinery
+`extraction.py` used for Groq/Gemini calls was extracted into
+`services/llm/orchestration.py` so generation.py reuses it verbatim
+rather than a second copy of the same retry logic — extraction.py itself
+is unchanged in behavior (all pre-existing tests pass unmodified except
+for the monkeypatch target moving with the code).
+
+**Citations are backend-verified, never LLM-trusted.** The model cites
+plain `[n]` markers against a backend-numbered reference list (same
+`chunk_label`/real-UUID separation `extraction.py` already established
+for exactly the same "a model can't reliably reproduce a UUID"
+reason) — `generation.py` resolves every marker, and any substantive
+sentence with no marker, an invented marker, or a marker whose sentence
+fails the faithfulness guardrail (local lexical/embedding overlap check,
+escalating only the borderline sentences to one *batched* LLM-judge call
+covering the whole answer — never one call per sentence) forces the
+entire answer to `insufficient_information`. There is no partial-trust
+path: an answer is either fully validated or entirely replaced with the
+fixed decline message.
+
+**Streaming, honestly scoped.** The plan asks for token-by-token SSE
+"with the structured citations payload delivered once generation
+completes" — those two asks are in real tension, since nothing is safe to
+show until it's been citation-bound and faithfulness-checked. The
+message-send endpoint runs the full pipeline server-side first, then
+streams the *already-validated* answer in chunks so the frontend still
+gets incremental rendering, followed by one final event carrying
+citations/confidence/intent — see `api/v1/chat.py`'s module docstring.
+
+**The CUAD dataset is used for real, not just as demo filler.**
+`scripts/build_cuad_reference_corpus.py` parses `CUAD_v1.json` (not
+`master_clauses.csv` — its "-Answer" columns are short extracted values
+like "Yes"/"Nevada", not the actual clause text a benchmark comparison
+needs) into 11,990 unique (category, verbatim clause) rows across all
+510 contracts and ~41 CUAD categories, each independently embedded and
+persisted to a new global (not `org_id`-scoped) `cuad_reference_clauses`
+table — real, verified retrieval quality: a hybrid search for "liability
+cap limitation of damages" against the populated corpus returns actual
+on-topic clauses, not placeholder text. The same dataset also drives
+`scripts/run_rag_evaluation.py`'s question set, sampled only from CUAD
+questions whose source contract is actually present in the target org's
+own seeded data (round-robined across categories, not taken alphabetically
+— an early version skewed entirely toward "Affiliate License-Licensee"
+before that fix, confirmed by actually running it against the real
+25-contract demo org and checking category diversity).
+
+**Found by actually running it, not by reading the code:**
+- Citation markers placed *after* the sentence-ending period (as an LLM
+  will sometimes do regardless of prompt wording) split a well-cited
+  sentence from its own `[n]` marker under naive sentence-splitting,
+  making every correctly-cited answer look uncited and forcing a false
+  `insufficient_information`. Found via the generation test suite, fixed
+  by merging trailing bracket-only fragments back onto the prior sentence
+  rather than relying on prompt wording alone to prevent it.
+- A real intent-misclassification: "What is the termination notice period
+  in our vendor agreement?" — a plain factual lookup with zero comparative
+  language — classified as `clause_benchmark` instead of `domain_question`,
+  because it lexically overlaps a benchmark exemplar ("Is a 90-day
+  termination notice period standard for vendor contracts?") more than any
+  domain-question exemplar did. Fixed by adding exemplar coverage for this
+  common phrasing shape, verified by re-measuring the actual embedding
+  similarity scores before and after rather than guessing at a fix.
+- `websearch_to_tsquery`'s AND-across-all-terms semantics: a lexical query
+  including a word absent from the target text (e.g. "period" in a query
+  against text that never says "period") matches nothing, even when every
+  other term matches — not a bug, but a real, non-obvious behavior that
+  surfaced as unexplained zero-result test failures until traced to the
+  literal Postgres query.
+
+**Tests:** 82 chat-specific tests (RRF fusion + org-scoped hybrid search,
+intent classification across all four categories, calendar-query date-math
+parsing including quarter/year rollover, guardrails (injection detection,
+legal-advice framing, faithfulness batch-checking with LLM-judge
+escalation), generation (well-grounded answers, every hallucination-shaped
+failure mode, malformed-JSON retry), pipeline routing, Langfuse no-op
+guarantees, evaluation metrics, and a full chat-API RBAC/multi-tenant sweep)
+plus 5 frontend component tests — all passing alongside the full
+pre-existing suite (251 backend, 13 frontend total).
+
 ## Current Status
 
-All eleven phases of the build plan are implemented and pushed to `main`.
-Known gaps, called out here rather than left to be discovered:
+All eleven phases of the master build plan, plus Phase 12 (the
+conversational chatbot), are implemented. Known gaps, called out here
+rather than left to be discovered:
 
 - **Admin Settings is scoped to what the backend actually supports.** The
   plan's Admin Settings page also describes user/role management and
@@ -882,3 +1003,18 @@ Known gaps, called out here rather than left to be discovered:
 - **Multi-currency contract value is grouped, not summed**, on the
   dashboard — a deliberate choice (see Phase 6), not an oversight, but
   worth knowing if you're expecting one number.
+- **The RAG evaluation CI step is currently a no-op** (no CUAD dataset,
+  no LLM key in CI) — see `docs/CHATBOT_EVALUATION.md` for why and how to
+  run it manually.
+- **Citation "View in document" opens the source PDF but doesn't scroll
+  to or highlight the cited paragraph** — the existing document viewer is
+  a plain iframe over the raw PDF blob, not a paragraph-anchor-aware
+  renderer, and the plan's own instruction was to reuse existing
+  traceability rather than build a new highlighting mechanism.
+- **Langfuse tracing is real but unverified end-to-end in this session**
+  — `docker compose config` confirms the compose overlay is syntactically
+  valid and every service/volume/dependency reference resolves, but
+  actually booting six containers (image pulls, ClickHouse/Postgres
+  migrations) wasn't run here; `services/observability.py`'s no-op
+  behavior *is* verified (7 passing tests), so the chat pipeline is
+  confirmed unaffected either way.

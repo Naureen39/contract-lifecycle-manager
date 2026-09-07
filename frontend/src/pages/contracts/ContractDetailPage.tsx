@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
-import { Maximize2 } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { MessageSquare, Maximize2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { EmptyState, ErrorState, LoadingState } from '@/components/QueryState'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -14,6 +15,19 @@ import { CONTRACT_STATUS_LABEL, CONTRACT_STATUS_TONE, categoryLabel } from '@/li
 
 export function ContractDetailPage() {
   const { contractId } = useParams<{ contractId: string }>()
+  const navigate = useNavigate()
+
+  const startChat = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await apiClient.POST('/api/v1/chat/sessions', {
+        body: { scope: 'contract', contract_id: contractId! },
+      })
+      if (error) throw new Error('Failed to start a chat about this contract.')
+      return data
+    },
+    onSuccess: (data) => navigate(`/chat/${data.id}`),
+    onError: () => toast.error('Could not start a chat about this contract.'),
+  })
 
   const contractQuery = useQuery({
     queryKey: ['contract', contractId],
@@ -72,10 +86,21 @@ export function ContractDetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{contract.title}</h1>
           <p className="text-sm text-muted-foreground">{contract.original_filename}</p>
         </div>
-        <StatusBadge
-          tone={CONTRACT_STATUS_TONE[contract.status]}
-          label={CONTRACT_STATUS_LABEL[contract.status]}
-        />
+        <div className="flex shrink-0 items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => startChat.mutate()}
+            disabled={startChat.isPending}
+          >
+            <MessageSquare className="size-4" />
+            Chat about this contract
+          </Button>
+          <StatusBadge
+            tone={CONTRACT_STATUS_TONE[contract.status]}
+            label={CONTRACT_STATUS_LABEL[contract.status]}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

@@ -13,7 +13,7 @@ from app.core.security import create_access_token
 from app.db.enums import LLMProviderName, UserRole
 from app.db.models import ContractChunk, User
 from app.services.file_validation import MAX_UPLOAD_SIZE_BYTES
-from app.services.llm import extraction as extraction_module
+from app.services.llm import orchestration as orchestration_module
 from app.services.llm.base import LLMCompletionResult, LLMProvider
 
 _MOCK_LLM_RESPONSE = """
@@ -36,7 +36,7 @@ _MOCK_LLM_RESPONSE = """
 
 class _StubProvider(LLMProvider):
     """A canned-response LLMProvider, monkeypatched in for
-    extraction._build_provider so API-level tests exercise the real
+    orchestration.build_provider so API-level tests exercise the real
     upload -> extraction pipeline without ever calling a real LLM API —
     see docs/CONTRACT_CLM_BUILD_PLAN.md's rule that CI never does that."""
 
@@ -246,7 +246,7 @@ async def test_get_contract_status_reports_latest_extraction_job(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
-    monkeypatch.setattr(extraction_module, "_build_provider", lambda name: _StubProvider())
+    monkeypatch.setattr(orchestration_module, "build_provider", lambda name: _StubProvider())
 
     token = await _register_and_login(client, org_name="Acme", email="admin6@example.com")
 

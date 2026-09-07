@@ -20,7 +20,7 @@ from app.db.enums import (
 )
 from app.db.models import Contract, ContractChunk, ExtractionJob, Obligation, Organization, User
 from app.services.ingestion import retry_queued_extractions
-from app.services.llm import extraction as extraction_module
+from app.services.llm import orchestration as orchestration_module
 from app.services.llm.base import LLMCompletionResult, LLMProvider
 
 EMBEDDING_DIM = 768
@@ -110,8 +110,8 @@ async def test_retry_picks_up_queued_job_once_a_provider_has_headroom(
     contract, job = await _setup(db_session)
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
     monkeypatch.setattr(
-        extraction_module,
-        "_build_provider",
+        orchestration_module,
+        "build_provider",
         lambda name: _StubProvider(name, [_VALID_RESPONSE]),
     )
 
@@ -167,8 +167,8 @@ async def test_retry_discards_partial_obligations_before_reprocessing(
 
     monkeypatch.setattr(get_settings(), "groq_api_key", "test-key")
     monkeypatch.setattr(
-        extraction_module,
-        "_build_provider",
+        orchestration_module,
+        "build_provider",
         lambda name: _StubProvider(name, [_VALID_RESPONSE]),
     )
 

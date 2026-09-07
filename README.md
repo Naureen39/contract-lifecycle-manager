@@ -61,7 +61,8 @@ Contract Intake → Clause/Obligation Extraction → Obligation Tracking DB
    → Compliance Calendar → Automated Alerting → Renewal/Renegotiation Workflow
 ```
 
-**All eleven phases of the build are complete** — see the
+**All eleven phases of the build are complete, plus a Phase 12
+conversational chatbot** — see the
 [Engineering Walkthrough](docs/ENGINEERING_WALKTHROUGH.md) for the full,
 phase-by-phase account of how, including the deliberate deviations from
 the original plan and the real bugs found by actually running each piece
@@ -95,6 +96,15 @@ end to end rather than trusting a green test suite alone.
   over every clause ever ingested, and admin views for LLM quota usage and
   the audit log — talking to the backend through a client fully typed
   against its own generated OpenAPI schema.
+- **A grounded conversational assistant** — hybrid (dense + lexical, RRF-
+  fused) retrieval with a local cross-encoder reranker, citations
+  backend-verified against a faithfulness guardrail before they ever reach
+  a user (never LLM-trusted), clause benchmarking against a real
+  11,990-clause corpus built from the full CUAD v1 dataset, natural-
+  language compliance-calendar queries routed to direct SQL, and a
+  self-hosted (never SaaS) Langfuse tracing overlay — see
+  [`docs/CHATBOT_INTEGRATION_PLAN.md`](docs/CHATBOT_INTEGRATION_PLAN.md)
+  and [`docs/CHATBOT_EVALUATION.md`](docs/CHATBOT_EVALUATION.md).
 
 ## Architecture
 
@@ -231,7 +241,7 @@ python -m venv .venv
 # source .venv/bin/activate && pip install -r requirements.txt -r requirements-dev.txt  # macOS/Linux
 
 ./.venv/Scripts/python -m uvicorn app.main:app --reload   # http://localhost:8000
-./.venv/Scripts/python -m pytest                          # 134 tests
+./.venv/Scripts/python -m pytest                          # 251 tests
 ./.venv/Scripts/python -m ruff check .                     # lint
 ./.venv/Scripts/python -m mypy app scripts tests            # type-check
 ```
@@ -258,6 +268,31 @@ cost per machine. On a constrained or proxied network, prefix commands
 with `HF_HUB_DISABLE_XET=1` to force a plain HTTP download instead of
 Hugging Face's newer chunked-transfer backend.
 
+### Chatbot (optional, on top of the above)
+
+```bash
+# Populates the clause-benchmark corpus from the real CUAD v1 dataset
+# (~12k clauses, embedded locally — a few minutes, no API cost):
+./.venv/Scripts/python -m scripts.build_cuad_reference_corpus
+
+# Requires GROQ_API_KEY/GEMINI_API_KEY in .env; RAG evaluation harness —
+# see docs/CHATBOT_EVALUATION.md:
+./.venv/Scripts/python -m scripts.run_rag_evaluation
+```
+
+Tracing is entirely optional and off by default (the chatbot works
+identically without it). To run it, self-hosted, from `infra/`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d
+```
+
+then set `LANGFUSE_HOST`/`LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` in
+`.env` (auto-provisioned defaults are printed in `docker-compose.langfuse.yml`'s
+own header comment) and restart the backend. See
+[`docs/CHATBOT_INTEGRATION_PLAN.md`](docs/CHATBOT_INTEGRATION_PLAN.md) §8
+for why this is six containers, not one.
+
 ### Frontend
 
 ```bash
@@ -279,7 +314,10 @@ docker compose up --build
 ```
 
 Starts Postgres (with `pgvector`), the API, the background worker, and the
-frontend — wired together via `infra/docker-compose.yml`.
+frontend — wired together via `infra/docker-compose.yml`. Add
+`-f docker-compose.langfuse.yml` to also start self-hosted chat tracing
+(see the Chatbot section above) — it's a separate opt-in overlay, not
+part of this default command, since it's six additional containers.
 
 ## Repository Layout
 
@@ -287,6 +325,7 @@ frontend — wired together via `infra/docker-compose.yml`.
 backend/    FastAPI app — Python 3.13, async SQLAlchemy + Alembic
 frontend/   React 19 + Vite + TypeScript + Tailwind + shadcn/ui
 infra/      docker-compose.yml (postgres+pgvector, api, worker, frontend)
+            docker-compose.langfuse.yml (optional chat-tracing overlay)
 data/       git-ignored reference datasets (see data/README.md)
 docs/       engineering documentation
 ```

@@ -28,6 +28,7 @@ const ContractPreviewPage = lazy(() =>
     default: m.ContractPreviewPage,
   })),
 )
+const ChatPage = lazy(() => import('@/pages/ChatPage').then((m) => ({ default: m.ChatPage })))
 const ReviewQueuePage = lazy(() =>
   import('@/pages/ReviewQueuePage').then((m) => ({ default: m.ReviewQueuePage })),
 )
@@ -68,8 +69,11 @@ function App() {
             <Route path="/audit-log" element={<AuditLogPage />} />
           </Route>
           {/* Deliberately outside AppShell — no sidebar/header chrome, so
-              the document gets the entire viewport. */}
+              the document (or, for chat, the session list + thread)
+              gets the entire viewport. */}
           <Route path="/contracts/:contractId/preview" element={<ContractPreviewPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/chat/:sessionId" element={<ChatPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

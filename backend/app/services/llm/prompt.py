@@ -37,14 +37,3 @@ def build_user_prompt(chunks: list[ContractChunk]) -> str:
         f"JSON schema to match:\n{schema}\n\n"
         f"Candidate paragraphs:\n{paragraphs}"
     )
-
-
-def build_corrective_prompt(*, previous_response: str, validation_error: str) -> str:
-    return (
-        "Your last response failed schema validation with this error:\n"
-        f"{validation_error}\n\n"
-        "Your last response was:\n"
-        f"{previous_response}\n\n"
-        "Return corrected JSON that matches the schema exactly. Only output "
-        "the corrected JSON object — no prose, no markdown fences."
-    )

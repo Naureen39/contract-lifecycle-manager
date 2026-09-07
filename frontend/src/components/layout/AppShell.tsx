@@ -9,6 +9,7 @@ import {
   Gauge,
   ListChecks,
   LogOut,
+  MessageSquare,
   ScrollText,
   ShieldCheck,
 } from 'lucide-react'
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { to: '/review-queue', label: 'Review Queue', icon: ListChecks },
   { to: '/calendar', label: 'Compliance Calendar', icon: Calendar },
   { to: '/precedents', label: 'Precedent Search', icon: FileSearch },
+  { to: '/chat', label: 'Chat Assistant', icon: MessageSquare },
 ]
 
 const ADMIN_NAV_ITEMS = [
