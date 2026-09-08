@@ -64,7 +64,7 @@ export function RetrievalDiagnosticsPanel({ diagnostics }: { diagnostics: Answer
               </p>
               {attempt.top_candidates.length === 0 ? (
                 <p className="rounded-md border border-dashed bg-muted/30 p-2.5 text-xs text-muted-foreground">
-                  No passages were found at all — this contract may not have any indexed content.
+                  No passages were found at all. This contract may not have any indexed content.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1.5">

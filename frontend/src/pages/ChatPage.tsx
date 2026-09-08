@@ -83,7 +83,7 @@ function SessionSidebar({ activeSessionId }: { activeSessionId: string | undefin
         {sessionsQuery.isPending ? <LoadingState label="Loading chats..." /> : null}
         {sessionsQuery.data?.length === 0 ? (
           <p className="p-3 text-xs text-muted-foreground">
-            No chats yet — start one with the button above.
+            No chats yet. Start one with the button above.
           </p>
         ) : null}
         {sessionsQuery.data?.map((session) => (

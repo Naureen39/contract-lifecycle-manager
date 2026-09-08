@@ -89,7 +89,7 @@ function UploadDialog({ onUploaded }: { onUploaded: () => void }) {
       return
     }
 
-    toast.success('Contract uploaded — extraction is running in the background.')
+    toast.success('Contract uploaded. Extraction is running in the background.')
     setOpen(false)
     reset()
     onUploaded()

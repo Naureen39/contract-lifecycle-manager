@@ -12,7 +12,7 @@ const PERSONAS = [
   {
     title: 'SMBs without a dedicated legal function',
     description:
-      'Contract tracking falls to whoever remembers to check — which is precisely how renewal windows get missed.',
+      'Contract tracking falls to whoever remembers to check, which is precisely how renewal windows get missed.',
   },
 ]
 

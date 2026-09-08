@@ -35,7 +35,12 @@ password: ObliTrackDemo!2026
 ```
 
 Start the stack (`docker compose -f infra/docker-compose.yml up`, or the
-backend/frontend separately per the README) and open the frontend.
+backend/frontend separately per the README) and open the frontend. The
+first thing shown is the public landing page, not the login form —
+worth a few seconds pointing out before the walkthrough proper starts,
+since it's the only part of the product a prospective user sees before
+creating an account. Click "Log in" from there (or go straight to
+`/login`) to continue.
 
 ## Path A — seeded data walkthrough
 

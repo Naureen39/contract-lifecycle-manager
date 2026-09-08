@@ -64,7 +64,7 @@ export function ContractPreviewPage() {
         {!isPdf && contractQuery.data ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="text-sm text-muted-foreground">
-              Inline preview isn&apos;t available for DOCX files — browsers don&apos;t render
+              Inline preview isn&apos;t available for DOCX files. Browsers don&apos;t render
               them natively the way they do PDFs.
             </p>
             {preview.url ? (

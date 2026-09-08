@@ -91,11 +91,11 @@ end to end rather than trusting a green test suite alone.
   is recomputed daily from the actual date, and email alerts fire (isolated
   per-obligation, so one bad send never blocks the batch) for anything
   newly at-risk or overdue, deduped so nothing gets alerted twice in a day.
-- **A full React frontend** — dashboard, contract upload with an inline
-  PDF viewer, a review queue, the compliance calendar, precedent search
-  over every clause ever ingested, and admin views for LLM quota usage and
-  the audit log — talking to the backend through a client fully typed
-  against its own generated OpenAPI schema.
+- **A full React frontend** — a public landing page, dashboard, contract
+  upload with an inline PDF viewer, a review queue, the compliance
+  calendar, precedent search over every clause ever ingested, and admin
+  views for LLM quota usage and the audit log — talking to the backend
+  through a client fully typed against its own generated OpenAPI schema.
 - **A grounded conversational assistant** — hybrid (dense + lexical, RRF-
   fused) retrieval with a local cross-encoder reranker, citations
   backend-verified against a faithfulness guardrail before they ever reach
@@ -109,8 +109,8 @@ end to end rather than trusting a green test suite alone.
 ## Architecture
 
 The diagram below is the literal, sequential path a contract takes through
-the system — starting where every session starts, at login — not just a
-box-and-line inventory of services.
+the system, starting where every visitor starts, at the public landing
+page, not just a box-and-line inventory of services.
 
 ```mermaid
 flowchart TD
@@ -124,10 +124,13 @@ flowchart TD
 
     User(["👤 Legal Ops / Procurement User"]):::actor
 
-    User -->|"1 . Sign in"| Auth["`**Auth & RBAC**
+    User -->|"1 . Visit the landing page"| Landing["`**Landing Page**
+    public marketing site, no auth required`"]:::free
+
+    Landing -->|"2 . Sign in"| Auth["`**Auth & RBAC**
     JWT access/refresh · bcrypt · rate limiting`"]:::auth
 
-    Auth -->|"2 . Upload contract"| Ingest["`**Document Ingestion**
+    Auth -->|"3 . Upload contract"| Ingest["`**Document Ingestion**
     PyMuPDF / python-docx`"]:::free
 
     Ingest --> PreFilter
@@ -189,10 +192,10 @@ Numbers that are true today, not projections:
 
 | | |
 |---|---|
-| **Automated tests** | 127 backend (real Postgres+pgvector, both locally and in CI) + frontend component/unit tests, all passing |
+| **Automated tests** | 261 backend (real Postgres+pgvector, both locally and in CI) + 13 frontend component/unit tests, all passing |
 | **Type coverage** | `mypy` clean across the entire backend; the frontend's API client is compiler-checked against the backend's own generated OpenAPI schema |
 | **Dependency security** | Zero known vulnerabilities (`pip-audit` + `npm audit`), including the ML dependency tree |
-| **Database schema** | 11 tables, fully migration-managed via Alembic, zero schema drift between models and migrations |
+| **Database schema** | 14 tables, fully migration-managed via Alembic, zero schema drift between models and migrations |
 | **Container security** | Both Docker images verified running as non-root |
 | **CI coverage** | Lint, type-check, tests, migration-drift check, dependency audit, and a Docker build smoke test — on every push |
 | **Backend image size** | ~1GB lighter after pinning PyTorch's CPU-only build explicitly — the plain `torch==<version>` pin resolves to the full CUDA build (bundling ~1.1GB of unused `nvidia-cudnn`/`cuda-toolkit`) on a server that only ever runs embeddings on CPU |
@@ -289,7 +292,9 @@ docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d
 
 then set `LANGFUSE_HOST`/`LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` in
 `.env` (auto-provisioned defaults are printed in `docker-compose.langfuse.yml`'s
-own header comment) and restart the backend. See
+own header comment) and restart the backend. Confirmed working end to
+end: all six containers stay up with zero restarts, and a real chat turn
+produces a trace visible in the Langfuse UI. See
 [`docs/CHATBOT_INTEGRATION_PLAN.md`](docs/CHATBOT_INTEGRATION_PLAN.md) §8
 for why this is six containers, not one.
 

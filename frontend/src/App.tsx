@@ -4,16 +4,17 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '@/auth/ProtectedRoute'
 import { AppShell } from '@/components/layout/AppShell'
 import { LoadingState } from '@/components/QueryState'
+import { HomeRoute } from '@/pages/marketing/HomeRoute'
 import { LoginPage } from '@/pages/auth/LoginPage'
 
 // Code-split everything behind the login gate — an unauthenticated visitor
-// (or one who's just signing in) never needs the dashboard's chart
-// library, the calendar, or any of the rest of it in their initial bundle.
-// The landing page is split the same way in the other direction: an
-// authenticated user never re-fetches its bundle after their first visit.
-const HomeRoute = lazy(() =>
-  import('@/pages/marketing/HomeRoute').then((m) => ({ default: m.HomeRoute })),
-)
+// never needs the dashboard's chart library, the calendar, or any of the
+// rest of it in their initial bundle. HomeRoute ("/") and LoginPage stay
+// eager alongside it: they're the two screens almost every unauthenticated
+// visitor's very first paint depends on, so splitting either behind its
+// own chunk would trade a real loading flash on the site's front door for
+// a bundle-size saving an authenticated user (who's redirected away from
+// both before ever needing their content) never benefits from anyway.
 const RegisterPage = lazy(() =>
   import('@/pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })),
 )

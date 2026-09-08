@@ -1,7 +1,7 @@
 const STAGES = [
-  { title: 'Contract intake', description: 'Upload a signed PDF or DOCX — validated and parsed into paragraph-level chunks.' },
+  { title: 'Contract intake', description: 'Upload a signed PDF or DOCX, validated and parsed into paragraph-level chunks.' },
   { title: 'Obligation extraction', description: 'Every deadline, renewal, and monetary milestone is extracted and confidence-scored.' },
-  { title: 'Tracking database', description: 'Extracted obligations land in a structured, queryable store — not a spreadsheet.' },
+  { title: 'Tracking database', description: 'Extracted obligations land in a structured, queryable store, not a spreadsheet.' },
   { title: 'Compliance calendar', description: 'Status recomputes daily against the real date: upcoming, at risk, or overdue.' },
   { title: 'Automated alerting', description: 'Email alerts fire for anything newly at-risk, deduped so nothing repeats.' },
   { title: 'Renewal workflow', description: 'A renewal or renegotiation shows up in your calendar weeks before it matters.' },

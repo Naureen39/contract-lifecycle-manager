@@ -53,7 +53,7 @@ export function PrecedentSearchPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Precedent Search"
-        description="Search across every clause your organization has ever ingested — find how similar terms were handled before."
+        description="Search across every clause your organization has ever ingested to find how similar terms were handled before."
       />
 
       <form className="flex gap-2" onSubmit={handleSubmit}>

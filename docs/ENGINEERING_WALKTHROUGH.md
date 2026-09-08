@@ -722,9 +722,11 @@ the happy path a feature's own tests are written against:
 The architecture diagram in the README was also rebuilt from scratch as
 part of this pass: previously a static inventory of services grouped by
 backend/frontend, now the literal sequential path a contract takes
-starting from login, color-coded by cost (free local processing vs. the
-one paid LLM stage) and by who's in the loop (automated vs. human
-review). Validated by actually rendering it — `@mermaid-js/mermaid-cli`
+starting from the public landing page (a step added later, once that page
+existed — see "Landing Page & Brand Identity" below), color-coded by cost
+(free local processing vs. the one paid LLM stage) and by who's in the
+loop (automated vs. human review). Validated by actually rendering it —
+`@mermaid-js/mermaid-cli`
 against the exact Mermaid block committed to the README, not a
 by-eye read of the syntax — which caught two real layout bugs before they
 shipped: a subgraph title overlapping the node beneath it, and a decision
@@ -756,8 +758,14 @@ connected to a `ThemeProvider` before this).
 **Rebuilt `AppShell`** with a fixed dark-slate sidebar against a
 theme-able light/dark content area — a deliberate, common enterprise
 pattern (Linear, Vercel, Supabase all do this), not an inversion bug — a
-real logo mark, an active-nav-item indicator bar, and the user identity
+placeholder brand mark (a lucide `ShieldCheck` icon, standing in until a
+real one existed), an active-nav-item indicator bar, and the user identity
 control converted from a bare logout icon into a proper dropdown menu.
+The `ShieldCheck` placeholder was later replaced everywhere by an actual
+logo (see "Landing Page & Brand Identity" below) — it turned out a real,
+distinctive brand mark had been sitting unused as the browser favicon the
+whole time, refined into the app's actual logo instead of designed from
+scratch.
 
 **Added real charts to the dashboard** using shadcn's official `chart`
 component (a thin wrapper around **Recharts** — the library the build
@@ -790,7 +798,12 @@ still eager) once adding Recharts pushed the single bundle to 917KB
 gzipped 284KB — an unauthenticated visitor's login page has no business
 loading a charting library. The initial bundle dropped to 331KB gzipped
 103KB, with the dashboard's charts (and everything else behind the login
-gate) loading on demand instead.
+gate) loading on demand instead. (The landing page added later, "/", is
+eager alongside `LoginPage` for the same reason, not lazy — it's the
+actual first paint for almost every unauthenticated visitor, so splitting
+it behind its own chunk would trade a real loading flash on the site's
+front door for a bundle-size saving an authenticated visitor, redirected
+away before ever needing it, never benefits from anyway.)
 
 Verified end to end with a real headless browser (`chrome-headless-shell`,
 already on the machine from the mermaid-diagram work) driving actual
@@ -891,7 +904,18 @@ this codebase has spent eleven phases *not* having.
   than reusing oblitrack's, `LANGFUSE_INIT_*` wired so a first
   `docker compose up` produces working API keys with no manual sign-up).
   It's a separate opt-in overlay file specifically so a machine that
-  can't spare 8+ GB of RAM can still run the rest of the app.
+  can't spare 8+ GB of RAM can still run the rest of the app. Booting it
+  for real surfaced a genuine bug this file's own trimming introduced:
+  `CLICKHOUSE_CLUSTER_ENABLED` had been cut as "advanced/optional" when
+  the overlay was first adapted from Langfuse's upstream compose file,
+  but Langfuse's own ClickHouse migration unconditionally issues a
+  `CREATE TABLE ... ON CLUSTER default` against a `ReplicatedMergeTree`
+  engine, which requires a Zookeeper/ClickHouse Keeper cluster this
+  single-node setup doesn't have, and `langfuse-web` crash-looped until
+  the flag was restored explicitly as `"false"`. Fixed and confirmed: all
+  six containers stay up with zero restarts, a real chat trace round-trips
+  into ClickHouse end to end, and the backend is wired to it via
+  `LANGFUSE_HOST`/`LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` in `.env`.
 - **The evaluation harness implements RAGAS's four metrics directly, not
   the `ragas` library.** `ragas` drags in `langchain` + `openai` +
   `tiktoken` as dead weight even once its judge/embeddings are overridden
@@ -930,6 +954,24 @@ entire answer to `insufficient_information`. There is no partial-trust
 path: an answer is either fully validated or entirely replaced with the
 fixed decline message.
 
+**Every decline is categorized, not just declared, added after a real
+user-reported confusion.** `insufficient_information` used to collapse
+eight structurally different causes into one identical apology string,
+so a user reporting "why didn't it answer" had nothing to go on. A new
+`AnswerDiagnostics` schema (`app/schemas/chat.py`) threads a `DeclineReason`
+through both halves of the pipeline that can produce one: pipeline.py's
+own retrieval-stage outcomes (`no_candidates_found` versus
+`below_relevance_threshold`, distinguishing "nothing was ever retrieved"
+from "something was retrieved but didn't clear the rerank bar") and
+generation.py's existing guardrail chain (`llm_unavailable`,
+`llm_self_declined`, `legal_advice_framing`, `uncited_claim`,
+`failed_faithfulness_check`), each of which previously discarded its own
+reason the moment it returned the fixed fallback. Persisted (only on an
+actual decline, via a new `chat_messages.retrieval_diagnostics` column)
+alongside the real reranked candidates and their scores from every
+retrieval attempt made, and surfaced in the frontend as a collapsible
+"Why not enough information?" panel instead of the bare apology text.
+
 **Streaming, honestly scoped.** The plan asks for token-by-token SSE
 "with the structured citations payload delivered once generation
 completes" — those two asks are in real tension, since nothing is safe to
@@ -953,8 +995,10 @@ on-topic clauses, not placeholder text. The same dataset also drives
 questions whose source contract is actually present in the target org's
 own seeded data (round-robined across categories, not taken alphabetically
 — an early version skewed entirely toward "Affiliate License-Licensee"
-before that fix, confirmed by actually running it against the real
-25-contract demo org and checking category diversity).
+before that fix, confirmed by actually running it against the demo org's
+default 25-contract seed and checking category diversity; `--limit` on
+`seed_demo_data.py` isn't a ceiling — it accepts up to the full
+510-contract CUAD v1 dataset, 25 is just the seed script's own default).
 
 **Found by actually running it, not by reading the code:**
 - Citation markers placed *after* the sentence-ending period (as an LLM
@@ -979,15 +1023,17 @@ before that fix, confirmed by actually running it against the real
   surfaced as unexplained zero-result test failures until traced to the
   literal Postgres query.
 
-**Tests:** 82 chat-specific tests (RRF fusion + org-scoped hybrid search,
+**Tests:** 103 chat-specific tests (RRF fusion + org-scoped hybrid search,
 intent classification across all four categories, calendar-query date-math
 parsing including quarter/year rollover, guardrails (injection detection,
 legal-advice framing, faithfulness batch-checking with LLM-judge
 escalation), generation (well-grounded answers, every hallucination-shaped
-failure mode, malformed-JSON retry), pipeline routing, Langfuse no-op
-guarantees, evaluation metrics, and a full chat-API RBAC/multi-tenant sweep)
-plus 5 frontend component tests — all passing alongside the full
-pre-existing suite (251 backend, 13 frontend total).
+failure mode, malformed-JSON retry, and each answer's own `decline_reason`),
+pipeline routing (including the retrieval-stage `no_candidates_found`
+versus `below_relevance_threshold` split), Langfuse no-op guarantees,
+evaluation metrics, and a full chat-API RBAC/multi-tenant sweep) plus 5
+frontend component tests — all passing alongside the full pre-existing
+suite (261 backend, 13 frontend total).
 
 ## Current Status
 
@@ -1011,10 +1057,113 @@ rather than left to be discovered:
   a plain iframe over the raw PDF blob, not a paragraph-anchor-aware
   renderer, and the plan's own instruction was to reuse existing
   traceability rather than build a new highlighting mechanism.
-- **Langfuse tracing is real but unverified end-to-end in this session**
-  — `docker compose config` confirms the compose overlay is syntactically
-  valid and every service/volume/dependency reference resolves, but
-  actually booting six containers (image pulls, ClickHouse/Postgres
-  migrations) wasn't run here; `services/observability.py`'s no-op
-  behavior *is* verified (7 passing tests), so the chat pipeline is
-  confirmed unaffected either way.
+
+Langfuse tracing was previously listed here as "real but unverified end
+to end" — it's since been booted for real, the `CLICKHOUSE_CLUSTER_ENABLED`
+crash-loop bug found and fixed, and a real chat trace confirmed landing in
+ClickHouse. See "Two deliberate deviations from the plan" under Phase 12
+above for the full account; no longer a gap.
+
+## Landing Page & Brand Identity
+
+Until this pass, the app had no public-facing surface at all: `/`
+redirected straight to `/dashboard`, which `ProtectedRoute` bounced to
+`/login` for anyone unauthenticated — the login form was the de facto
+homepage, with no logo, no product description, nothing a first-time
+visitor could evaluate before creating an account.
+
+**The logo was hiding in plain sight.** `frontend/public/favicon.svg` was
+already a distinctive, polished purple/violet mark, but only ever wired up
+as the browser tab icon — everywhere else in the app (the sidebar, the
+chat session list), a generic lucide `ShieldCheck` icon stood in as
+branding instead (see "Frontend Design Pass" above, where that placeholder
+was introduced). The favicon's outer path turned out to already be a
+crisp, single-color silhouette; the file's apparent complexity was
+entirely a masked stack of ~14 blurred decorative ellipses layered inside
+it, which read as mud at sidebar/favicon sizes rather than adding
+polish. The fix was subtractive: lift the one clean path out, drop every
+blur layer, and reapply the mark's violet-to-cyan two-tone identity as a
+single flat `linearGradient` fill instead — same silhouette, same brand
+color, none of the rendering cost or small-size blur artifacts. A new
+`Logo` component (`frontend/src/components/Logo.tsx`) wraps it as an
+inline SVG (not an `<img src>`, so its gradient's locally-scoped `id`
+never collides when the mark renders more than once on the same page,
+e.g. a landing page's nav and footer at once) and now replaces
+`ShieldCheck` everywhere: the app sidebar, the chat session list, the
+browser tab, and the new landing page and auth screens below.
+
+**The landing page's first draft over-corrected, and user feedback
+caught it in one round.** The initial build paired a dark, editorial
+hero (Vercel/Linear/Ramp-school enterprise SaaS, deliberately chosen
+over a generic light gradient) with a **split-screen login** — a full-
+height branded marketing panel next to the actual form, the same pattern
+Stripe and Linear use. Real Fortune-500 sites (Salesforce, Workday,
+Oracle) don't do this: their login screens are small and purely
+utilitarian, and the marketing case is made once, on the homepage, not
+repeated on every auth screen. `AuthLayout` (`frontend/src/components/
+auth/AuthLayout.tsx`) was rebuilt to match: just the small logo above a
+centered card, no branded panel. The landing page's own nav was corrected
+the same way — "Log in" became a small plain text link, not a button
+competing with "Get started" for attention. The first draft was also
+typography-only (headline, stat tiles, icon-and-text feature cards) with
+no actual illustrative content; a second pass added a genuine hero
+visual (`HeroVisual.tsx`, an abstracted, deliberately-schematic compliance-
+calendar panel with a week strip, a stat readout, and gradient trend
+bars, not a literal screenshot claim) and soft ambient background gradient
+glows behind otherwise-flat light sections, closer to how Workday or
+Salesforce actually balance typography against real visual weight.
+
+**All landing-page copy is grounded in the project's own `README.md`, not
+invented.** The hero headline and subhead paraphrase the README's own
+problem narrative; the proof-points strip surfaces the same real,
+verifiable engineering metrics as the Results table below (the backend
+test count, the 45.7% token-reduction figure, the 11,990-clause benchmark
+corpus, zero known vulnerabilities); the feature grid and persona cards restate
+the README's own feature list and "Who Has This Problem" section. There
+are no fabricated customer logos, testimonials, or pricing tiers — this
+is a solo-built project with no customers, and inventing social proof
+would misrepresent it.
+
+**Routing gate mirrors a pattern the codebase already trusted.** `/` now
+renders a new `HomeRoute` (`frontend/src/pages/marketing/HomeRoute.tsx`),
+sitting outside `ProtectedRoute` so it's genuinely public, but doing the
+same one-line `if (!isBootstrapping && user) return <Navigate to="/dashboard">`
+check `LoginPage` already used to redirect an already-authenticated
+visitor away from itself — not a new architectural idiom, the same guard
+applied one level higher. The catch-all route was updated to match
+(`Navigate to="/"` instead of `/dashboard`), since `/` is now a real
+destination an unknown path should fall back to.
+
+**A shared `PageHeader`** (`frontend/src/components/PageHeader.tsx`)
+replaced eight pages' worth of duplicated ad-hoc `<h1>`/`<p>` markup with
+one component (title, optional description, optional right-aligned
+actions slot, optional breadcrumb) — a pure de-duplication with the exact
+same typography as before, so adopting it carried zero visual-regression
+risk on its own; the per-page visual polish layered on top of it
+(stronger dashboard stat-card hierarchy, calendar month-count badges,
+precedent-search similarity badges, review-queue confidence badges,
+status-aware LLM-usage quota bar colors) was a separate, deliberate set
+of choices, not smuggled in via the refactor.
+
+**A top-level `ErrorBoundary`** (`frontend/src/components/ErrorBoundary.tsx`,
+wrapping the whole tree in `main.tsx`) closes a real robustness gap the
+prior design never had: with no boundary anywhere, any single uncaught
+render error blanked the entire app to a plain white page with no
+explanation. Added after exactly that happened during manual testing —
+traced not to a code defect but to two dev-server instances running
+simultaneously on different ports, one of them talking to a backend
+whose CORS policy didn't allow its origin, silently failing every API
+call from that tab. The boundary doesn't fix a root cause like that (it
+can't; that one was environmental), it just means a real future render
+error shows a "Something went wrong, reload" screen instead of nothing.
+
+**A user-facing style rule enforced by a full sweep, not spot fixes.**
+The em dash, used as sentence-connector punctuation throughout this
+project's own code comments and documentation, was found to have leaked
+into actual on-screen copy — toast messages, empty-state text, landing-
+page paragraphs — sixteen instances across the frontend plus one in a
+backend-generated chat string, all rewritten with periods or commas
+instead. Deliberately scoped to user-visible text only: the codebase's
+own extensive comment style, which uses the em dash constantly, was left
+untouched, since the request was about what a user sees, not how the
+code talks to its own future readers.

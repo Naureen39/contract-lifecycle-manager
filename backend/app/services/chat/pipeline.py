@@ -41,7 +41,7 @@ _DIAGNOSTIC_CANDIDATE_PREVIEW_COUNT = 5
 _OUT_OF_SCOPE_ANSWER = ChatAnswer(
     answer_text=(
         "I can only help with questions about your organization's contracts, "
-        "obligations, and compliance calendar — I can't help with that."
+        "obligations, and compliance calendar. I can't help with that."
     ),
     citations=[],
     confidence="insufficient_information",

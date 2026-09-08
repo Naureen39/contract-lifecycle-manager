@@ -39,7 +39,7 @@ export function LoginPage() {
   }
 
   return (
-    <AuthLayout tagline="Every obligation, tracked automatically.">
+    <AuthLayout>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-xl">Sign in to ObliTrack</CardTitle>

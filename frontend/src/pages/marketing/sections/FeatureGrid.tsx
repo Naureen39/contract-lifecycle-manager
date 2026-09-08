@@ -37,7 +37,7 @@ const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
     icon: FileSearch,
     title: 'Precedent search',
     description:
-      'Search over every clause ever ingested across your organization — find how a term was negotiated before.',
+      'Search over every clause ever ingested across your organization to find how a term was negotiated before.',
   },
   {
     icon: MessageSquare,

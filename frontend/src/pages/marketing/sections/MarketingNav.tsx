@@ -19,15 +19,13 @@ export function MarketingNav() {
             Engineering
           </a>
         </nav>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            className="text-white hover:bg-white/10 hover:text-white"
-            render={<Link to="/login" />}
-          >
+        <div className="flex items-center gap-5">
+          <Link to="/login" className="text-sm text-white/70 transition-colors hover:text-white">
             Log in
+          </Link>
+          <Button size="sm" render={<Link to="/register" />}>
+            Get started
           </Button>
-          <Button render={<Link to="/register" />}>Get started</Button>
         </div>
       </div>
     </header>

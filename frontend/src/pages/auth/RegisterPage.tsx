@@ -39,12 +39,12 @@ export function RegisterPage() {
   }
 
   return (
-    <AuthLayout tagline="You'll be the first admin — invite teammates later.">
+    <AuthLayout>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-xl">Create your organization</CardTitle>
           <CardDescription>
-            You&apos;ll be the first admin — invite teammates later.
+            You&apos;ll be the first admin. Invite teammates later.
           </CardDescription>
         </CardHeader>
         <CardContent>

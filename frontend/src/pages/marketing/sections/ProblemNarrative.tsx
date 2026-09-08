@@ -1,7 +1,13 @@
+import { FileWarning } from 'lucide-react'
+
 export function ProblemNarrative() {
   return (
-    <section className="bg-background">
-      <div className="mx-auto grid max-w-5xl gap-10 px-6 py-24 md:grid-cols-2 md:gap-16">
+    <section className="relative overflow-hidden bg-background">
+      <div
+        aria-hidden
+        className="absolute top-1/2 left-1/2 size-[36rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.04] blur-3xl"
+      />
+      <div className="relative mx-auto grid max-w-5xl gap-10 px-6 py-24 md:grid-cols-2 md:gap-16">
         <div className="flex flex-col gap-4">
           <p className="text-xs font-semibold tracking-wider text-primary uppercase">
             The problem
@@ -11,7 +17,7 @@ export function ProblemNarrative() {
             watched.
           </h2>
           <p className="text-muted-foreground">
-            Vendor agreements, NDAs, leases, MSAs, licenses — each one contains obligations
+            Vendor agreements, NDAs, leases, MSAs, and licenses each contain obligations
             buried in dense, inconsistently formatted legal prose: renewal notice deadlines,
             payment triggers, SLA commitments, compliance requirements. Today, tracking that
             lives in people's memory, email threads, or a spreadsheet that goes stale the moment
@@ -25,12 +31,17 @@ export function ProblemNarrative() {
           </p>
         </div>
         <div className="flex items-center">
-          <blockquote className="rounded-2xl border bg-card p-8 text-lg leading-relaxed font-medium text-balance">
-            "A renewal that auto-triggers unless someone objects in time. A termination window
-            that closes after sixty days. A payment milestone tied to a date nobody put on a
-            calendar."
-            <footer className="mt-4 text-sm font-normal text-muted-foreground">
-              None of that lives anywhere a computer can see it — until now.
+          <blockquote className="flex flex-col gap-5 rounded-2xl border bg-card p-8 shadow-sm">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#7e14ff] to-[#47bfff] text-white">
+              <FileWarning className="size-5" />
+            </span>
+            <p className="text-lg leading-relaxed font-medium text-balance">
+              "A renewal that auto-triggers unless someone objects in time. A termination window
+              that closes after sixty days. A payment milestone tied to a date nobody put on a
+              calendar."
+            </p>
+            <footer className="text-sm font-normal text-muted-foreground">
+              None of that lives anywhere a computer can see it, until now.
             </footer>
           </blockquote>
         </div>

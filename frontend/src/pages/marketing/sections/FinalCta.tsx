@@ -11,7 +11,7 @@ export function FinalCta() {
           Stop finding out about a missed deadline after the fact.
         </h2>
         <p className="max-w-xl text-white/65">
-          Get started in minutes — upload a contract and watch ObliTrack build your compliance
+          Get started in minutes. Upload a contract and watch ObliTrack build your compliance
           calendar for you.
         </p>
         <Button size="lg" className="h-11 px-6 text-base" render={<Link to="/register" />}>

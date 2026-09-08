@@ -39,7 +39,7 @@ export function CitationPanel({
           <SheetTitle className="pr-6">{citation?.contract_title}</SheetTitle>
           <SheetDescription>
             {citation?.is_reference_corpus
-              ? "From the CUAD reference corpus — not one of your organization's own contracts, so there's no document to open here."
+              ? "From the CUAD reference corpus, not one of your organization's own contracts, so there's no document to open here."
               : 'Source excerpt this citation was grounded in.'}
           </SheetDescription>
         </SheetHeader>
