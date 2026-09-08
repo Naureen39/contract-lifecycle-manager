@@ -170,21 +170,99 @@ flowchart TD
 
     Embed -.->|"anytime: search"| Search["`**Precedent Search**
     cosine similarity over every clause`"]:::free
+
+    subgraph ChatFlow["Chat Assistant (ask anytime, about any contract)"]
+        direction TB
+        ChatRetrieve["`**Hybrid Retrieval + Rerank**
+        dense + lexical, RRF-fused, cross-encoder reranked`"]:::free
+        ChatRetrieve --> ChatGen["`**Grounded Generation**
+        Groq primary → Gemini fallback`"]:::paid
+        ChatGen --> ChatGuard{"`Every claim cited &
+        faithfulness-checked?`"}:::review
+    end
+    style ChatFlow fill:#faf5ff,stroke:#7c3aed,stroke-width:1px,stroke-dasharray: 4 3
+
+    User -.->|"anytime: ask a question"| ChatRetrieve
+    Embed -.->|"same embeddings"| ChatRetrieve
+    ChatGuard -->|"yes"| ChatAnswer["`**Answer + Citations**
+    linked back to the source paragraph`"]:::data
+    ChatGuard -->|"no"| ChatDecline["`**Not Enough Information**
+    categorized & explained, never a guess`"]:::review
+    ChatAnswer -.->|"answers"| User
 ```
 
 **Green** stages are local and free — the regex pre-filter, the
 CPU-only embedding model, and clause-level dedup all run before a single
 paid token is spent. **Amber** is the one stage that costs money, entered
-only on a cache miss. **Rose** is the human-in-the-loop gate: any
-obligation below a confidence threshold, or touching a high-stakes
-category like renewal or termination notice, is never auto-trusted.
-**Violet** is the daily background job that keeps the compliance calendar
-live without a user ever having to ask.
+only on a cache miss. **Rose** is a never-auto-trusted gate: an
+obligation below a confidence threshold or touching a high-stakes
+category (renewal, termination notice) waits for human review; a chat
+answer that fails its own citation and faithfulness checks is declined
+outright rather than shown half-trusted. **Violet** marks ongoing,
+always-available capability layered on top of the core pipeline: the
+daily background job that keeps the compliance calendar live without a
+user ever having to ask, and the chat assistant, answerable at any time
+once at least one contract has been ingested.
 
 Every query is scoped by the authenticated user's organization at the
 database level — a user from one organization can never see another's
 contracts, obligations, or files, enforced in code and covered by tests,
 not left to convention.
+
+## The Chat Assistant
+
+Reading a hundred-page vendor contract to answer one question, "what's
+the liability cap," "can we terminate this early," is exactly the kind
+of task that eats an afternoon and still leaves room for doubt about
+whether the right clause was even found. The chat assistant exists to
+turn that into a ten-second question, without trading away trust in the
+answer.
+
+**What it's for.** Ask it questions in plain English, either about one
+specific contract or across an entire organization's contract library:
+"What's the termination notice period in our Acme MSA?", "Do any of our
+vendor contracts cap liability below $50,000?", "What obligations are
+overdue this month?". It can also benchmark a clause against a large
+reference corpus of real, historical contract language, to answer "is
+this term unusual?" rather than only "what does this term say?".
+
+**How it helps.** It turns a search-and-read chore into a conversation,
+with every claim traceable back to the exact contract and paragraph it
+came from, one click away in the original document. It's built to be
+exactly as helpful as it can be honest about: it never guesses. If the
+contracts it checked don't actually contain the answer, it says so
+explicitly instead of producing a plausible-sounding paragraph that
+isn't grounded in anything real, and it explains why it couldn't answer
+(nothing matched, what matched wasn't relevant enough, or a stricter
+check downstream rejected a draft answer) rather than leaving a bare
+apology.
+
+**How it works.** Under the hood, this is retrieval-augmented generation
+with more verification than that phrase usually implies:
+
+1. The question is matched against the organization's contracts using
+   hybrid search: dense vector similarity for meaning, keyword search for
+   exact terms, phrases, and defined-term names it wouldn't otherwise
+   catch, combined by reciprocal rank fusion.
+2. A second, local model reranks those candidates for genuine relevance
+   to the specific question asked, not just topical similarity.
+3. Only the reranked, most relevant passages are handed to an LLM, which
+   is instructed to answer strictly from those passages and to cite
+   exactly which one supports each sentence it writes.
+4. Before anything reaches the screen, the backend independently checks
+   that every substantive sentence has a citation, every citation resolves
+   to a real passage, and every cited sentence is actually supported by
+   the source it cites, not just plausible next to it. Any answer that
+   fails a check is replaced with an honest, categorized decline instead
+   of being shown half-trusted.
+5. Natural-language questions about deadlines and obligations ("what's
+   due this month?") skip the LLM step entirely and route straight to a
+   real database query, since that class of question has one correct,
+   computable answer, not one worth generating text for.
+
+The result is an assistant that would rather say "I don't have enough
+information" than be wrong, and that never asks a user to take its word
+for something they can't immediately go verify themselves.
 
 ## Results & Engineering Rigor
 
