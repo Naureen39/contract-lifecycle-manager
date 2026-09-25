@@ -1,8 +1,6 @@
 # ObliTrack 
 
-**Contract Lifecycle & Obligation Management for legal and procurement teams.** 
-
-Demo -> https://drive.google.com/file/d/1K051gbsni0e6gB3uvzPWAInjYxsCwE8H/view?usp=sharing
+**Contract Lifecycle & Obligation Management for legal and procurement teams.** [Demo](https://drive.google.com/file/d/1d-Qe_zNEh3NE-zf0168W09Bil5f8gwrk/view?usp=sharing)
 
 ## Overview
 
